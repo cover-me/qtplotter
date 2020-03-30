@@ -194,6 +194,8 @@ def plot2d(fPath,**kw):
     return _plot2d(x,y,w,**kw) 
 
 def play2d(fPath,**kw):
+    '''Generate an interactive 2D plot to play with'''
+    # get data
     x,y,w,labels = read2d(fPath,**kw)
     x0 = x[0]
     y0 = y[:,0]
@@ -201,14 +203,23 @@ def play2d(fPath,**kw):
     dy = y0[1]-y0[0]
     wmin = np.min(w)
     wmax = np.max(w)
+    dw = (wmax-wmin)/20
     if 'labels' not in kw:
         kw['labels'] = labels
-    @widgets.interact(
-        xpos=(x0[0],x0[-1],dx),
-        ypos=(y0[0],y0[-1],dy),
-        gamma=(-100,100,10),
-        vlim=widgets.FloatRangeSlider(value=[wmin,wmax],min=wmin,max=wmax,step=(wmax-wmin)/20,description='limit'),)
-    def foo(xpos,ypos,gamma,vlim):
+    
+    # UI
+    sxpos = widgets.FloatSlider(value=(x0[0]+x0[-1])/2,min=x0[0],max=x0[-1],step=dx,description='x')
+    sypos = widgets.FloatSlider(value=(y0[0]+y0[-1])/2,min=y0[0],max=y0[-1],step=dy,description='y')
+    vb1 = widgets.VBox([sxpos,sypos])
+    sgamma = widgets.IntSlider(value=0,min=-100,max=100,step=10,description='gamma')
+    svlim = widgets.FloatRangeSlider(value=[wmin,wmax],min=wmin,max=wmax,step=dw,description='limit')
+    vb2 = widgets.VBox([sgamma,svlim])
+    ui = widgets.Tab(children=[vb1,vb2])
+    [ui.set_title(i,j) for i,j in zip([0,1], ['linecuts','color'])]
+    
+    # interactive funcion
+    def _play2d(xpos,ypos,gamma,vlim):
+        # initialize the figure
         fig, axs = plt.subplots(1,2,figsize=(6,2),dpi=120)#main plot and h linecut
         plt.subplots_adjust(hspace=0.3,wspace=0.5)
         axs[1].yaxis.tick_right()
@@ -229,6 +240,10 @@ def play2d(fPath,**kw):
         indy = np.abs(y0 - ypos).argmin()
         axs[0].plot(x0,y[indy,:],'tab:orange')
         axs[1].plot(x0,w[indy,:],'tab:orange')
+        
+    out = widgets.interactive_output(_play2d, {'xpos':sxpos,'ypos':sypos,'gamma':sgamma,'vlim':svlim})
+    display(ui, out)
+
 
 def _plot2d(x,y,w,**kw):
     '''Plot 2D figure'''
