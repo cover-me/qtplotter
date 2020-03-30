@@ -1,4 +1,10 @@
-# pieces of code taken from project qtplot
+'''
+https://github.com/cover-me/qtplotter
+
+A data visualization notebook inspired by Rubenknex/qtplot and gsteele13/spyview. Most of the code is grabbed from qtplot because the latter is already well developed.
+
+It's a simpler, easier-to-access version of qtplot helping with the visualization/interaction of our shared quantum transport data.
+'''
 import os
 import matplotlib.pyplot as plt
 import matplotlib as mpl
