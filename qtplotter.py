@@ -5,7 +5,7 @@ import matplotlib as mpl
 import numpy as np
 from urllib.request import urlopen
 from scipy import ndimage
-from ipywidgets import interact
+import ipywidgets as widgets
 plt.rcParams['figure.facecolor'] = 'white'
 
 # operations
@@ -199,10 +199,16 @@ def play2d(fPath,**kw):
     y0 = y[:,0]
     dx = x0[1]-x0[0]
     dy = y0[1]-y0[0]
+    wmin = np.min(w)
+    wmax = np.max(w)
     if 'labels' not in kw:
         kw['labels'] = labels
-    @interact(gamma=(-100,100,5),xcut=(x0[0],x0[-1],dx),ycut=(y0[0],y0[-1],dy))
-    def foo(gamma,xcut,ycut):
+    @widgets.interact(
+        xpos=(x0[0],x0[-1],dx),
+        ypos=(y0[0],y0[-1],dy),
+        gamma=(-100,100,10),
+        vlim=widgets.FloatRangeSlider(value=[wmin,wmax],min=wmin,max=wmax,step=(wmax-wmin)/20,description='limit'),)
+    def foo(xpos,ypos,gamma,vlim):
         fig, axs = plt.subplots(1,2,figsize=(6,2),dpi=120)#main plot and h linecut
         plt.subplots_adjust(hspace=0.3,wspace=0.5)
         axs[1].yaxis.tick_right()
@@ -213,13 +219,14 @@ def play2d(fPath,**kw):
         axv.tick_params(axis='x', colors='tab:blue')
         axv.tick_params(axis='y', colors='tab:blue')
         # plot 2D data
-        _plot2d(x,y,w,gamma=gamma,fig=fig,ax=axs[0],**kw)
+        kw['gamma'],kw['vmin'],kw['vmax']=gamma,vlim[0],vlim[1]
+        _plot2d(x,y,w,fig=fig,ax=axs[0],**kw)
         # vlinecut
-        indx = np.abs(x0 - xcut).argmin()# x0 may be a non uniform array
+        indx = np.abs(x0 - xpos).argmin()# x0 may be a non uniform array
         axs[0].plot(x[:,indx],y0,'tab:blue')
         axv.plot(w[:,indx],y0,'tab:blue')
         # hlinecut
-        indy = np.abs(y0 - ycut).argmin()
+        indy = np.abs(y0 - ypos).argmin()
         axs[0].plot(x0,y[indy,:],'tab:orange')
         axs[1].plot(x0,w[indy,:],'tab:orange')
 
@@ -251,7 +258,7 @@ def _plot2d(x,y,w,**kw):
         else:
             imkw['norm'] = mpl.colors.PowerNorm(gamma=gamma_real)
     
-    if ps['useImshow']:#slightly different from pcolormesh, especially if saved as vector formats. Imshow is better if it works. See the links in get_quad().
+    if ps['useImshow']:#slightly different from pcolormesh, especially if saved as vector formats. Imshow is better if it works. See the links in get_quad() description.
         xy_range = (x1[0,0],x1[0,-1],y1[0,0],y1[-1,0])
         im = ax.imshow(w,aspect='auto',interpolation='none',origin='lower',extent=xy_range,**imkw)
     else:
