@@ -1,6 +1,6 @@
 # qtplotter
 
-A data visualization notebook inspired by [Rubenknex/qtplot](https://github.com/Rubenknex/qtplot) and [gsteele13/spyview](https://github.com/gsteele13/spyview). Most of the code is grabbed from qtplot because it is already well developed.
+A data visualization notebook inspired by [Rubenknex/qtplot](https://github.com/Rubenknex/qtplot) and [gsteele13/spyview](https://github.com/gsteele13/spyview). Most of the code is grabbed from qtplot because  the latter is already well developed.
 
 It's a simpler, easier-to-access version of qtplot helping with the visualization/interaction of our shared quantum transport data.
 
