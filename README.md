@@ -1,12 +1,12 @@
 # qtplotter
 
-A data visualization notebook inspired by [Rubenknex/qtplot](https://github.com/Rubenknex/qtplot) and [gsteele13/spyview](https://github.com/gsteele13/spyview). Most of the code is grabbed from qtplot because  the latter is already well developed.
+A data visualization notebook inspired by [Rubenknex/qtplot](https://github.com/Rubenknex/qtplot) and [gsteele13/spyview](https://github.com/gsteele13/spyview). Most of the code is grabbed from qtplot.
 
-It's a simpler, easier-to-access version of qtplot helping with the visualization/interaction of our shared quantum transport data.
+It's a simpler, easier-to-access version of qtplot for visualizing and interacting with our shared quantum transport data.
 
 ## Preview
 
-The notebook preview on GitHub doesn't render ipywidgets. You can preview notebooks on jupyter.org.
+The notebook previewer on GitHub doesn't render ipywidgets. You can preview notebooks on jupyter.org.
 
 https://nbviewer.jupyter.org/github/cover-me/qtplotter/blob/master/index.ipynb
 
