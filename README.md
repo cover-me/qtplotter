@@ -21,4 +21,4 @@ https://mybinder.org/v2/gh/cover-me/qtplotter/master?filepath=index.ipynb
 https://mybinder.org/v2/gh/cover-me/qtplotter/master
 
 ## Examples
-Check example.ipynb for examples
+Check [example.ipynb](./example.ipynb) for examples
