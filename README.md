@@ -14,7 +14,7 @@ https://nbviewer.jupyter.org/github/cover-me/qtplotter/
 
 ## Run in the Cloud
 
-The code can be run on mybinder.org
+The code can be run on mybinder.org so that the shared data, no matter local or online, can be visualized interactively with a few clicks.
 
 https://mybinder.org/v2/gh/cover-me/qtplotter/master?filepath=index.ipynb
 
