@@ -1,5 +1,7 @@
 # qtplotter
 
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/cover-me/qtplotter/master?filepath=index.ipynb)
+
 A data visualization notebook inspired by [Rubenknex/qtplot](https://github.com/Rubenknex/qtplot) and [gsteele13/spyview](https://github.com/gsteele13/spyview). Most of the code is grabbed from qtplot.
 
 It's a simpler, easier-to-access version of qtplot for visualizing and interacting with our shared quantum transport data.
