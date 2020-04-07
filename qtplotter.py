@@ -287,10 +287,7 @@ class Painter:
         gamma_real = 10.0**(ps['gamma'] / 100.0)# to be consistent with qtplot
         if gamma_real != 1:
             if ps['gmode']=='moveColor':# qtplot style
-                _ = 1024# default: 256
-                cmap = mpl.cm.get_cmap(imkw['cmap'], _)
-                cmap = mpl.colors.ListedColormap(cmap(np.linspace(0, 1, _)**gamma_real))
-                imkw['cmap'] = cmap
+                imkw['cmap'] = Painter._get_cmap_gamma(imkw['cmap'],gamma_real,1024)
             else:# matplotlib default style
                 imkw['norm'] = mpl.colors.PowerNorm(gamma=gamma_real)
 
@@ -323,6 +320,13 @@ class Painter:
         ax.plot(x[0],w[0])
         ax.set_xlabel(ps['labels'][0])
         ax.set_ylabel(ps['labels'][1])
+    
+    @staticmethod
+    def _get_cmap_gamma(cname,g,n=256):
+        '''Get a listed cmap with gamma'''
+        cmap = mpl.cm.get_cmap(cname, n)
+        cmap = mpl.colors.ListedColormap(cmap(np.linspace(0, 1, n)**g))
+        return cmap
     
     @staticmethod
     def simpAx(ax=None,cbar=None,im=None,n=(None,None,None),pad=(-5,-15,-10)):
@@ -381,42 +385,56 @@ def plot(fPath,**kw):
         Painter.plot2d(x,y,w,**kw)
 
 # play
-def play(fPath,**kw):
-    '''
-    Generate an interactive 2D plot to play with
-    x,y must be uniform spaced, autoflipped.
-    '''
-    # Data
-    x,y,w,labels = read2d(fPath,**kw)
-    if 'labels' not in kw:
-        kw['labels'] = labels
-    x0 = x[0]
-    y0 = y[:,0]
-    xmin,xmax,dx = x[0,0],x[0,-1],x[0,1]-x[0,0]
-    ymin,ymax,dy = y[0,0],y[-1,0],y[1,0]-y[0,0]
-    wmin,wmax = np.min(w),np.max(w)
-    dw = (wmax-wmin)/20
+def play(path_or_url):
+    if mpl.get_backend() == 'module://ipympl.backend_nbagg':
+        print('You are in widget mode. If you don\'t like it, use "%matplotlib widget" and "%matplotlib inline" to switch between backends')
+        Player(path_or_url)
+    else:
+        print('You are in inline mode. More features are availible in widget mode. You can use "%matplotlib widget" and "%matplotlib inline" to switch between backends')
+        Player.play_inline(path_or_url)
+        
+class Player:
+    def __init__(self,path_or_url,**kw):
+        # data
+        self.path = path_or_url
+        x,y,w,labels = read2d(path_or_url,**kw)
+        if 'labels' not in kw:
+            kw['labels'] = labels
 
-    # UI
-    sxpos = widgets.FloatSlider(value=(xmin+xmax)/2,min=xmin,max=xmax,step=dx,description='x')
-    sypos = widgets.FloatSlider(value=(ymin+ymax)/2,min=ymin,max=ymax,step=dy,description='y')
-    vb1 = widgets.VBox([sxpos,sypos])
-    sgamma = widgets.IntSlider(value=0,min=-100,max=100,step=10,description='gamma')
-    svlim = widgets.FloatRangeSlider(value=[wmin,wmax],min=wmin,max=wmax,step=dw,description='limit')
-    vb2 = widgets.VBox([sgamma,svlim])
-    bexpMTX = widgets.Button(description='To mtx')
-    htmlexp = widgets.HTML()
-    vb3 = widgets.VBox([bexpMTX,htmlexp])
-    ui = widgets.Tab(children=[vb1,vb2,vb3])
-    [ui.set_title(i,j) for i,j in zip(range(3), ['linecuts','color','export'])]
+        self.x = x
+        self.y = y
+        self.w = w
+        self.kw = kw
 
-    # interactive funcion
-    indx,indy = 0,0
-    def _play2d(xpos,ypos,gamma,vlim):
-        nonlocal indx,indy
-        # initialize the figure
-        fig, axs = plt.subplots(1,2,figsize=(7,2.5),dpi=120)#main plot and h linecut
-        plt.subplots_adjust(wspace=0.4)
+        x0 = x[0]
+        y0 = y[:,0]
+        xmin,xmax,dx = x[0,0],x[0,-1],x[0,1]-x[0,0]
+        ymin,ymax,dy = y[0,0],y[-1,0],y[1,0]-y[0,0]
+        wmin,wmax = np.min(w),np.max(w)
+        dw = (wmax-wmin)/20
+        
+        # UI
+        self.s_xpos = widgets.FloatSlider(value=(xmin+xmax)/2,min=xmin,max=xmax,step=dx,description='x')
+        self.s_ypos = widgets.FloatSlider(value=(ymin+ymax)/2,min=ymin,max=ymax,step=dy,description='y')
+        vb1 = widgets.VBox([self.s_xpos,self.s_ypos])
+        self.s_gamma = widgets.IntSlider(value=0,min=-100,max=100,step=10,description='gamma')
+        self.s_vlim = widgets.FloatRangeSlider(value=[wmin,wmax], min=wmin, max=wmax, step=dw, description='limit')
+        self.c_cmap = widgets.Combobox(value='', placeholder='Choose or type', options=plt.colormaps(), description='colormap:', ensure_option=False, disabled=False)
+        vb2 = widgets.VBox([self.s_gamma,self.s_vlim,self.c_cmap])
+        self.b_expMTX = widgets.Button(description='To mtx')
+        self.html_exp = widgets.HTML()
+        vb3 = widgets.VBox([self.b_expMTX,self.html_exp])
+        ui = widgets.Tab(children=[vb1,vb2,vb3])
+        [ui.set_title(i,j) for i,j in zip(range(3), ['linecuts','color','export'])]
+        display(ui)
+        
+        # figure
+        fig, axs = plt.subplots(1,2,figsize=(6.5,2.5))#main plot and h linecut
+        fig.canvas.header_visible = False
+        fig.canvas.toolbar_visible = False
+        fig.canvas.resizable = False
+        
+        plt.subplots_adjust(wspace=0.4,bottom=0.2)
         axs[1].yaxis.tick_right()
         axs[1].tick_params(axis='x', colors='tab:orange')
         axs[1].tick_params(axis='y', colors='tab:orange')
@@ -424,34 +442,185 @@ def play(fPath,**kw):
         axv.xaxis.tick_top()
         axv.tick_params(axis='x', colors='tab:blue')
         axv.tick_params(axis='y', colors='tab:blue')
-        # plot 2D data
-        kw = {}
-        kw['gamma'],kw['vmin'],kw['vmax']=gamma,vlim[0],vlim[1]
-        Painter.plot2d(x,y,w,fig=fig,ax=axs[0],**kw)
-        # vlinecut
-        indx = np.abs(x0 - xpos).argmin()# x0 may be a non uniform array
-        axs[0].plot(x[:,indx],y0,'tab:blue')
-        axv.plot(w[:,indx],y0,'tab:blue')
-        # hlinecut
-        indy = np.abs(y0 - ypos).argmin()
-        axs[0].plot(x0,y[indy,:],'tab:orange')
-        axs[1].plot(x0,w[indy,:],'tab:orange')
+        self.fig = fig
+        self.ax = axs[0]
+        self.axv = axv
+        self.axh = axs[1]
 
-    def _export(_):
-        htmlexp.value = 'Saving...'
-        fname = os.path.split(fPath)[1]
+        # plot 2D data
+        g = self.s_gamma.value
+        v0,v1 = self.s_vlim.value
+        self.kw['gamma'],self.kw['vmin'],self.kw['vmax']=g,v0,v1
+        Painter.plot2d(self.x,self.y,self.w,fig=self.fig,ax=self.ax,**self.kw)
+        
+        self.im = [obj for obj in self.ax.get_children() if isinstance(obj, mpl.image.AxesImage) or isinstance(obj,mpl.collections.QuadMesh)][0]
+        
+        # vlinecut
+        xpos = self.s_xpos.value
+        indx = np.abs(x0 - xpos).argmin()# x0 may be a non uniform array
+        [self.linev1] = axs[0].plot(x[:,indx],y0,'tab:blue')
+        [self.linev2] = axv.plot(w[:,indx],y0,'tab:blue')
+        self.indx = indx
+        
+        # hlinecut
+        ypos = self.s_ypos.value
+        indy = np.abs(y0 - ypos).argmin()
+        [self.lineh1] = axs[0].plot(x0,y[indy,:],'tab:orange')
+        [self.lineh2] = axs[1].plot(x0,w[indy,:],'tab:orange')
+        self.indy = indy
+        
+        self.s_gamma.observe(self.on_gamma_change,'value')
+        self.s_vlim.observe(self.on_vlim_change,'value')
+        self.c_cmap.observe(self.on_cmap_change,'value')
+        self.s_xpos.observe(self.on_xpos_change,'value')
+        self.s_ypos.observe(self.on_ypos_change,'value')
+        self.fig.canvas.mpl_connect('button_press_event', self.on_mouse_click)
+        self.b_expMTX.on_click(self.exportMTX)
+
+
+    
+    def on_gamma_change(self,change):
+        cmpname = self.c_cmap.value
+        if cmpname not in plt.colormaps():
+            cmpname = 'seismic'
+        g = change['new']
+        g = 10.0**(g / 100.0)# to be consistent with qtplot
+        if g!= 1:
+            self.im.set_cmap(Painter._get_cmap_gamma(cmpname,g,1024))
+        else:
+            self.im.set_cmap(cmpname)
+
+    def on_cmap_change(self,change):
+        cmap = change['new']
+        if cmap in plt.colormaps():
+            self.im.set_cmap(cmap)
+    
+    def on_vlim_change(self,change):
+        v0,v1 = change['new']
+        self.im.set_clim(v0,v1)
+    
+    def on_xpos_change(self,change):
+        xpos = change['new']
+        x0 = self.x[0]
+        indx = np.abs(x0 - xpos).argmin()# x0 may be a non uniform array
+        self.linev1.set_xdata(self.x[:,indx])
+        self.linev2.set_xdata(self.w[:,indx])
+        self.axv.relim()
+        self.axv.autoscale_view()
+        self.indx = indx
+
+    def on_ypos_change(self,change):
+        ypos = change['new']
+        y0 = self.y[:,0]
+        indy = np.abs(y0 - ypos).argmin()# x0 may be a non uniform array
+        self.lineh1.set_ydata(self.y[indy,:])
+        self.lineh2.set_ydata(self.w[indy,:])
+        self.axh.relim()
+        self.axh.autoscale_view()
+        self.indy = indy
+    
+    def on_mouse_click(self,event):
+        x,y = event.xdata,event.ydata
+        if self.s_xpos.value != x:
+            self.on_xpos_change({'new':x})
+        if self.s_ypos.value != y:
+            self.on_ypos_change({'new':y})
+    
+    def exportMTX(self,_):
+        self.html_exp.value = 'Saving...'
+        fname = os.path.split(self.path)[1]
         fname = os.path.splitext(fname)[0]
+        x = self.x
+        y = self.y
+        w = self.w
+        x0 = x[0]
+        y0 = y[:,0]
+        labels = self.kw['labels']
         # vlincut
-        fnamev = fname+'.vcut.%e.mtx'%x[0,indx]
-        Data2d.saveMTX2d(fnamev,y0[np.newaxis],x[np.newaxis,:,indx],w[np.newaxis,:,indx],[labels[i] for i in [1,0,2]])
+        fnamev = fname+'.vcut.%e.mtx'%x[0,self.indx]
+        Data2d.saveMTX2d(fnamev,y0[np.newaxis],x[np.newaxis,:,self.indx],w[np.newaxis,:,self.indx],[labels[i] for i in [1,0,2]])
         # hlincut
-        fnameh = fname+'.hcut.%e.mtx'%y[indy,0]
-        Data2d.saveMTX2d(fnameh,x0[np.newaxis],y[[indy],:],w[[indy],:],labels)
+        fnameh = fname+'.hcut.%e.mtx'%y[self.indy,0]
+        Data2d.saveMTX2d(fnameh,x0[np.newaxis],y[[self.indy],:],w[[self.indy],:],labels)
         # 2d data
         fname2d = fname+'.mtx'
         Data2d.saveMTX2d(fname2d,x,y,w,labels)
-        htmlexp.value = 'Files saved:<br>%s<br>%s<br>%s'%(fnamev,fnameh,fname2d)
+        self.html_exp.value = 'Files saved:<br>%s<br>%s<br>%s'%(fnamev,fnameh,fname2d)
+    
+    @staticmethod    
+    def play_inline(fPath,**kw):
+        '''
+        For matplotlib inline mode.
+        Generate an interactive 2D plot to play with
+        x,y must be uniform spaced, autoflipped.
+        '''
+        # Data
+        x,y,w,labels = read2d(fPath,**kw)
+        if 'labels' not in kw:
+            kw['labels'] = labels
+        x0 = x[0]
+        y0 = y[:,0]
+        xmin,xmax,dx = x[0,0],x[0,-1],x[0,1]-x[0,0]
+        ymin,ymax,dy = y[0,0],y[-1,0],y[1,0]-y[0,0]
+        wmin,wmax = np.min(w),np.max(w)
+        dw = (wmax-wmin)/20
 
-    out = widgets.interactive_output(_play2d, {'xpos':sxpos,'ypos':sypos,'gamma':sgamma,'vlim':svlim})
-    bexpMTX.on_click(_export)
-    display(ui, out)
+        # UI
+        sxpos = widgets.FloatSlider(value=(xmin+xmax)/2,min=xmin,max=xmax,step=dx,description='x')
+        sypos = widgets.FloatSlider(value=(ymin+ymax)/2,min=ymin,max=ymax,step=dy,description='y')
+        vb1 = widgets.VBox([sxpos,sypos])
+        sgamma = widgets.IntSlider(value=0,min=-100,max=100,step=10,description='gamma')
+        svlim = widgets.FloatRangeSlider(value=[wmin,wmax],min=wmin,max=wmax,step=dw,description='limit')
+        vb2 = widgets.VBox([sgamma,svlim])
+        bexpMTX = widgets.Button(description='To mtx')
+        htmlexp = widgets.HTML()
+        vb3 = widgets.VBox([bexpMTX,htmlexp])
+        ui = widgets.Tab(children=[vb1,vb2,vb3])
+        [ui.set_title(i,j) for i,j in zip(range(3), ['linecuts','color','export'])]
+
+        # interactive funcion
+        indx,indy = 0,0
+        def _play2d(xpos,ypos,gamma,vlim):
+            nonlocal indx,indy
+            # initialize the figure
+            fig, axs = plt.subplots(1,2,figsize=(6.5,2.5),dpi=120)#main plot and h linecut
+            plt.subplots_adjust(wspace=0.4)
+            axs[1].yaxis.tick_right()
+            axs[1].tick_params(axis='x', colors='tab:orange')
+            axs[1].tick_params(axis='y', colors='tab:orange')
+            axv = fig.add_axes(axs[1].get_position(), frameon=False)#ax vertical linecut
+            axv.xaxis.tick_top()
+            axv.tick_params(axis='x', colors='tab:blue')
+            axv.tick_params(axis='y', colors='tab:blue')
+            # plot 2D data
+            kw = {}
+            kw['gamma'],kw['vmin'],kw['vmax']=gamma,vlim[0],vlim[1]
+            Painter.plot2d(x,y,w,fig=fig,ax=axs[0],**kw)
+            # vlinecut
+            indx = np.abs(x0 - xpos).argmin()# x0 may be a non uniform array
+            axs[0].plot(x[:,indx],y0,'tab:blue')
+            axv.plot(w[:,indx],y0,'tab:blue')
+            # hlinecut
+            indy = np.abs(y0 - ypos).argmin()
+            axs[0].plot(x0,y[indy,:],'tab:orange')
+            axs[1].plot(x0,w[indy,:],'tab:orange')
+
+        def _export(_):
+            htmlexp.value = 'Saving...'
+            fname = os.path.split(fPath)[1]
+            fname = os.path.splitext(fname)[0]
+            # vlincut
+            fnamev = fname+'.vcut.%e.mtx'%x[0,indx]
+            Data2d.saveMTX2d(fnamev,y0[np.newaxis],x[np.newaxis,:,indx],w[np.newaxis,:,indx],[labels[i] for i in [1,0,2]])
+            # hlincut
+            fnameh = fname+'.hcut.%e.mtx'%y[indy,0]
+            Data2d.saveMTX2d(fnameh,x0[np.newaxis],y[[indy],:],w[[indy],:],labels)
+            # 2d data
+            fname2d = fname+'.mtx'
+            Data2d.saveMTX2d(fname2d,x,y,w,labels)
+            htmlexp.value = 'Files saved:<br>%s<br>%s<br>%s'%(fnamev,fnameh,fname2d)
+
+        out = widgets.interactive_output(_play2d, {'xpos':sxpos,'ypos':sypos,'gamma':sgamma,'vlim':svlim})
+        bexpMTX.on_click(_export)
+        display(ui, out)
+
