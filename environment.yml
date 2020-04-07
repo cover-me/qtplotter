@@ -1,3 +1,8 @@
+name: qtplotter
+channels:
+  - conda-forge
+  - defaults
 dependencies:
   - matplotlib
   - scipy
+  - ipympl
