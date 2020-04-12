@@ -6,21 +6,21 @@ A data visualization notebook inspired by [Rubenknex/qtplot](https://github.com/
 
 It's a simpler, easier-to-access version of qtplot for visualizing and interacting with our shared quantum transport data.
 
-## Preview
+## Files
 
-The notebook previewer on GitHub doesn't render ipywidgets. You can preview notebooks on jupyter.org.
+index.ipynb: A demo for interactively visualizing shared-online data. 
 
-https://nbviewer.jupyter.org/github/cover-me/qtplotter/blob/master/index.ipynb
+example.ipynb: More examples, especially of generating static figures.
 
-https://nbviewer.jupyter.org/github/cover-me/qtplotter/
+qtplotter.py: The main code is here.
 
-## Run in the Cloud
 
-The code can be run on mybinder.org so that the shared data, no matter local or online, can be visualized interactively with a few clicks.
+## Preview .ipynb files
 
-https://mybinder.org/v2/gh/cover-me/qtplotter/master?filepath=index.ipynb
+These files can be directly previewed on GitHub. However, GitHub doesn't render ipywidgets (which is used for interaction). You can preview notebooks on [jupyter.org](https://nbviewer.jupyter.org/) for a better experience. (Links: [index.ipynb](https://nbviewer.jupyter.org/github/cover-me/qtplotter/blob/master/index.ipynb), [example.ipynb](https://nbviewer.jupyter.org/github/cover-me/qtplotter/blob/master/example.ipynb))
 
-https://mybinder.org/v2/gh/cover-me/qtplotter/master
+## Run .ipynb files in the cloud
 
-## Examples
-Check [example.ipynb](./example.ipynb) for examples
+The notebooks can be run on [mybinder.org](https://mybinder.org/) directly so that the shared data, no matter local or online, can be visualized interactively with a few clicks, by anyone, anywhere. 
+
+Tips: click the "launch binder" badge to launch the index.ipynb on mybinder.org. It usually takes less than 20 seconds to launch, but sometimes more than 1 minute. After having launched, use the `open->files...` menu to go to the files page where you can open other notebooks or download generated files.
