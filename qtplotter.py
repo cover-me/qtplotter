@@ -9,7 +9,6 @@ import numpy as np
 from urllib.request import urlopen
 from scipy import ndimage
 import ipywidgets as widgets
-plt.rcParams['figure.facecolor'] = 'white'
 
 # operation
 class Operation:
@@ -385,12 +384,10 @@ def plot(fPath,**kw):
         Painter.plot2d(x,y,w,**kw)
 
 # play
-def play(path_or_url):
+def play(path_or_url,**kw):
     if mpl.get_backend() == 'module://ipympl.backend_nbagg':
-        print('You are in widget mode. If you don\'t like it, use "%matplotlib widget" and "%matplotlib inline" to switch between backends')
-        Player(path_or_url)
+        Player(path_or_url,**kw)
     else:
-        print('You are in inline mode. More features are availible in widget mode. You can use "%matplotlib widget" and "%matplotlib inline" to switch between backends')
         Player.play_inline(path_or_url)
         
 class Player:
@@ -414,18 +411,33 @@ class Player:
         dw = (wmax-wmin)/20
         
         # UI
+        ## Tab of tools
         self.s_xpos = widgets.FloatSlider(value=(xmin+xmax)/2,min=xmin,max=xmax,step=dx,description='x')
         self.s_ypos = widgets.FloatSlider(value=(ymin+ymax)/2,min=ymin,max=ymax,step=dy,description='y')
         vb1 = widgets.VBox([self.s_xpos,self.s_ypos])
         self.s_gamma = widgets.IntSlider(value=0,min=-100,max=100,step=10,description='gamma')
-        self.s_vlim = widgets.FloatRangeSlider(value=[wmin,wmax], min=wmin, max=wmax, step=dw, description='limit')
-        self.c_cmap = widgets.Combobox(value='', placeholder='Choose or type', options=plt.colormaps(), description='colormap:', ensure_option=False, disabled=False)
+        self.s_vlim = widgets.FloatRangeSlider(value=[wmin,wmax], min=wmin, max=wmax, step=dw, description='vlim')
+        self.c_cmap = widgets.Combobox(value='', placeholder='Choose or type', options=plt.colormaps(), description='cmap:', ensure_option=False, disabled=False)
         vb2 = widgets.VBox([self.s_gamma,self.s_vlim,self.c_cmap])
         self.b_expMTX = widgets.Button(description='To mtx')
         self.html_exp = widgets.HTML()
         vb3 = widgets.VBox([self.b_expMTX,self.html_exp])
-        ui = widgets.Tab(children=[vb1,vb2,vb3])
-        [ui.set_title(i,j) for i,j in zip(range(3), ['linecuts','color','export'])]
+        self.t_tools = widgets.Tab(children=[vb1,vb2,vb3])
+        [self.t_tools.set_title(i,j) for i,j in zip(range(3), ['linecuts','color','export'])]
+        self.t_tools.layout.display = 'none'
+        ## A toggle button
+        self.tb_showtools = widgets.ToggleButton(value=False, description='...', tooltip='Description', icon='plus-circle')
+        self.tb_showtools.layout.width='50px'
+        ## Top layer ui
+        ui = widgets.Box([self.t_tools,self.tb_showtools])
+
+        if 'gamma' in kw:
+            self.s_gamma.value = kw['gamma']
+        if 'vlim' in kw:
+            self.s_vlim.value = kw['vlim']
+        if 'cmap' in kw:
+            self.c_cmap.value = kw['cmap']
+
         display(ui)
         
         # figure
@@ -474,10 +486,9 @@ class Player:
         self.c_cmap.observe(self.on_cmap_change,'value')
         self.s_xpos.observe(self.on_xpos_change,'value')
         self.s_ypos.observe(self.on_ypos_change,'value')
+        self.tb_showtools.observe(self.on_showtools_change,'value')
         self.fig.canvas.mpl_connect('button_press_event', self.on_mouse_click)
         self.b_expMTX.on_click(self.exportMTX)
-
-
     
     def on_gamma_change(self,change):
         cmpname = self.c_cmap.value
@@ -518,7 +529,17 @@ class Player:
         self.axh.relim()
         self.axh.autoscale_view()
         self.indy = indy
-    
+    def on_showtools_change(self,change):
+        if change['new']:
+            self.t_tools.layout.display = 'block'
+            self.tb_showtools.icon = 'minus-circle'
+            self.tb_showtools.description = ''
+        else:
+            self.t_tools.layout.display = 'none'
+            self.tb_showtools.icon = 'plus-circle'
+            self.tb_showtools.description = '...'
+
+        
     def on_mouse_click(self,event):
         x,y = event.xdata,event.ydata
         if self.s_xpos.value != x:
@@ -550,6 +571,7 @@ class Player:
     @staticmethod    
     def play_inline(fPath,**kw):
         '''
+        Obsolete.
         For matplotlib inline mode.
         Generate an interactive 2D plot to play with
         x,y must be uniform spaced, autoflipped.
