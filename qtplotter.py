@@ -9,6 +9,7 @@ import numpy as np
 from urllib.request import urlopen
 from scipy import ndimage
 import ipywidgets as widgets
+
 # data operations
 class Operation:
     '''
@@ -387,6 +388,10 @@ def play(path_or_url,**kw):
     Player(path_or_url,**kw)
         
 class Player:
+    
+    # CONSTANTS
+    PLAYER_STATIC = False # set it True to make Player generate static figures (for previewing in viewers).
+    
     def __init__(self,path_or_url,**kw):
         # data
         self.path = path_or_url
@@ -459,52 +464,55 @@ class Player:
         self.b_expMTX.on_click(self.exportMTX)
 
     def draw(self,event):
-        with self.out:
-            # axs
-            fig, axs = plt.subplots(1,2,figsize=(6.5,2.5),dpi=100)#main plot and h linecut
-            fig.canvas.header_visible = False
-            fig.canvas.toolbar_visible = False
-            fig.canvas.resizable = False
-            plt.subplots_adjust(wspace=0.4,bottom=0.2)
-            axs[1].yaxis.tick_right()
-            axs[1].tick_params(axis='x', colors='tab:orange')
-            axs[1].tick_params(axis='y', colors='tab:orange')
-            axv = fig.add_axes(axs[1].get_position(), frameon=False)#ax vertical linecut
-            axv.xaxis.tick_top()
-            axv.tick_params(axis='x', colors='tab:blue')
-            axv.tick_params(axis='y', colors='tab:blue')
-            self.fig = fig
-            self.ax = axs[0]
-            self.axv = axv
-            self.axh = axs[1]
+        # axs
+        fig, axs = plt.subplots(1,2,figsize=(6.5,2.5),dpi=100)#main plot and h linecut
+        fig.canvas.header_visible = False
+        fig.canvas.toolbar_visible = False
+        fig.canvas.resizable = False
+        plt.subplots_adjust(wspace=0.4,bottom=0.2)
+        axs[1].yaxis.tick_right()
+        axs[1].tick_params(axis='x', colors='tab:orange')
+        axs[1].tick_params(axis='y', colors='tab:orange')
+        axv = fig.add_axes(axs[1].get_position(), frameon=False)#ax vertical linecut
+        axv.xaxis.tick_top()
+        axv.tick_params(axis='x', colors='tab:blue')
+        axv.tick_params(axis='y', colors='tab:blue')
+        self.fig = fig
+        self.ax = axs[0]
+        self.axv = axv
+        self.axh = axs[1]
 
-            # heatmap
-            g = self.s_gamma.value
-            v0,v1 = self.s_vlim.value
-            cmap = self.c_cmap.value
-            if cmap not in plt.colormaps():
-                cmap = 'seismic'
-            self.kw['gamma'],self.kw['vmin'],self.kw['vmax'],self.kw['cmap']=g,v0,v1,cmap
-            Painter.plot2d(self.x,self.y,self.w,fig=self.fig,ax=self.ax,**self.kw)
-            self.im = [obj for obj in self.ax.get_children() if isinstance(obj, mpl.image.AxesImage) or isinstance(obj,mpl.collections.QuadMesh)][0]
+        # heatmap
+        g = self.s_gamma.value
+        v0,v1 = self.s_vlim.value
+        cmap = self.c_cmap.value
+        if cmap not in plt.colormaps():
+            cmap = 'seismic'
+        self.kw['gamma'],self.kw['vmin'],self.kw['vmax'],self.kw['cmap']=g,v0,v1,cmap
+        Painter.plot2d(self.x,self.y,self.w,fig=self.fig,ax=self.ax,**self.kw)
+        self.im = [obj for obj in self.ax.get_children() if isinstance(obj, mpl.image.AxesImage) or isinstance(obj,mpl.collections.QuadMesh)][0]
 
-            # vlinecut
-            x0 = self.x[0]
-            y0 = self.y[:,0]
-            xpos = self.s_xpos.value
-            indx = np.abs(x0 - xpos).argmin()# x0 may be a non uniform array
-            [self.linev1] = axs[0].plot(self.x[:,indx],y0,'tab:blue')
-            [self.linev2] = axv.plot(self.w[:,indx],y0,'tab:blue')
-            self.indx = indx
+        # vlinecut
+        x0 = self.x[0]
+        y0 = self.y[:,0]
+        xpos = self.s_xpos.value
+        indx = np.abs(x0 - xpos).argmin()# x0 may be a non uniform array
+        [self.linev1] = axs[0].plot(self.x[:,indx],y0,'tab:blue')
+        [self.linev2] = axv.plot(self.w[:,indx],y0,'tab:blue')
+        self.indx = indx
 
-            # hlinecut
-            ypos = self.s_ypos.value
-            indy = np.abs(y0 - ypos).argmin()
-            [self.lineh1] = axs[0].plot(x0,self.y[indy,:],'tab:orange')
-            [self.lineh2] = axs[1].plot(x0,self.w[indy,:],'tab:orange')
-            self.indy = indy
+        # hlinecut
+        ypos = self.s_ypos.value
+        indy = np.abs(y0 - ypos).argmin()
+        [self.lineh1] = axs[0].plot(x0,self.y[indy,:],'tab:orange')
+        [self.lineh2] = axs[1].plot(x0,self.w[indy,:],'tab:orange')
+        self.indy = indy
+        if Player.PLAYER_STATIC or mpl.get_backend() == 'module://ipympl.backend_nbagg':
             plt.show()
-            self.out.clear_output(wait=True)
+        else:
+            with self.out:
+                plt.show()
+                self.out.clear_output(wait=True)
         
     def on_gamma_change(self,change):
         cmpname = self.c_cmap.value
