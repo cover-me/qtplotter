@@ -25,4 +25,4 @@ The notebooks can be run on [mybinder.org](https://mybinder.org/) directly so th
 
 Tips: click the "launch binder" badge to launch the index.ipynb on mybinder.org. It usually takes less than 20 seconds to launch, but sometimes more than 1 minute. After having launched, use the `open->files...` menu to go to the files page where you can open other notebooks or download generated files.
 
-It also works in Colab, which is very convenient if you have a google account. Colab doesn't support ipywidgets (and %matplotlib widget) very well. But %matplotlib inline mode works.
+It also works in Colab, which is very convenient if you have a google account. Colab doesn't support ipywidgets (or %matplotlib widget) very well. But %matplotlib inline mode also works for interaction.
