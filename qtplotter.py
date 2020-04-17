@@ -427,7 +427,7 @@ class Player:
         [self.t_tools.set_title(i,j) for i,j in zip(range(3), ['linecuts','color','export'])]
         self.t_tools.layout.display = 'none'
         ## A toggle button
-        self.tb_showtools = widgets.ToggleButton(value=False, description='...', tooltip='tools', icon='plus-circle')
+        self.tb_showtools = widgets.ToggleButton(value=False, description='...', tooltip='Toggle Tools', icon='plus-circle')
         self.tb_showtools.layout.width='50px'
         ## Top layer ui
         ui = widgets.Box([self.t_tools,self.tb_showtools])
