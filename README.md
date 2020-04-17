@@ -23,6 +23,6 @@ These files can be directly previewed on GitHub. However, GitHub doesn't render 
 
 The notebooks can be run on [mybinder.org](https://mybinder.org/) directly so that the shared data, no matter local or online, can be visualized interactively with a few clicks, by anyone, anywhere. 
 
-Tips: click the "launch binder" badge to launch the index.ipynb on mybinder.org. It usually takes less than 20 seconds to launch, but sometimes more than 1 minute. After having launched, use the `open->files...` menu to go to the files page where you can open other notebooks or download generated files.
+Tips: click the "launch binder" badge to launch the index.ipynb on mybinder.org. It usually takes less than 20 seconds to launch, but sometimes more than 1 minute. After having launched, use the `open->files...` menu to go to the files page where you can open other notebooks or download/update files.
 
 It also works in Colab, which is very convenient if you have a google account. Colab doesn't support ipywidgets (and %matplotlib widget) very well. But %matplotlib inline mode works.
