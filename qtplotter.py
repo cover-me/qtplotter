@@ -9,8 +9,7 @@ import numpy as np
 from urllib.request import urlopen
 from scipy import ndimage
 import ipywidgets as widgets
-
-# operation
+# data operations
 class Operation:
     '''
     A collection of static methods for data operation.
@@ -117,7 +116,7 @@ class Operation:
             d = d[:,::-1,:]
         return d
 
-# data
+# data loading/saving
 class Data2d:
     '''
     A collection of static methods loading/saving 2d data.
@@ -385,10 +384,7 @@ def plot(fPath,**kw):
 
 # play
 def play(path_or_url,**kw):
-    if mpl.get_backend() == 'module://ipympl.backend_nbagg':
-        Player(path_or_url,**kw)
-    else:
-        Player.play_inline(path_or_url)
+    Player(path_or_url,**kw)
         
 class Player:
     def __init__(self,path_or_url,**kw):
@@ -397,12 +393,18 @@ class Player:
         x,y,w,labels = read2d(path_or_url,**kw)
         if 'labels' not in kw:
             kw['labels'] = labels
+        
+        if len(y)==1:#1d data
+            x = np.vstack([x,x,x])
+            y = np.vstack([y-.5,y,y+.5])
+            w = np.vstack([w,w,w])
 
         self.x = x
         self.y = y
         self.w = w
         self.kw = kw
 
+        # UI
         x0 = x[0]
         y0 = y[:,0]
         xmin,xmax,dx = x[0,0],x[0,-1],x[0,1]-x[0,0]
@@ -410,7 +412,6 @@ class Player:
         wmin,wmax = np.min(w),np.max(w)
         dw = (wmax-wmin)/20
         
-        # UI
         ## Tab of tools
         self.s_xpos = widgets.FloatSlider(value=(xmin+xmax)/2,min=xmin,max=xmax,step=dx,description='x')
         self.s_ypos = widgets.FloatSlider(value=(ymin+ymax)/2,min=ymin,max=ymax,step=dy,description='y')
@@ -426,10 +427,11 @@ class Player:
         [self.t_tools.set_title(i,j) for i,j in zip(range(3), ['linecuts','color','export'])]
         self.t_tools.layout.display = 'none'
         ## A toggle button
-        self.tb_showtools = widgets.ToggleButton(value=False, description='...', tooltip='Description', icon='plus-circle')
+        self.tb_showtools = widgets.ToggleButton(value=False, description='...', tooltip='tools', icon='plus-circle')
         self.tb_showtools.layout.width='50px'
         ## Top layer ui
         ui = widgets.Box([self.t_tools,self.tb_showtools])
+        self.out = widgets.Output()
 
         if 'gamma' in kw:
             self.s_gamma.value = kw['gamma']
@@ -438,58 +440,72 @@ class Player:
         if 'cmap' in kw:
             self.c_cmap.value = kw['cmap']
 
-        display(ui)
-        
-        # figure
-        fig, axs = plt.subplots(1,2,figsize=(6.5,2.5))#main plot and h linecut
-        fig.canvas.header_visible = False
-        fig.canvas.toolbar_visible = False
-        fig.canvas.resizable = False
-        
-        plt.subplots_adjust(wspace=0.4,bottom=0.2)
-        axs[1].yaxis.tick_right()
-        axs[1].tick_params(axis='x', colors='tab:orange')
-        axs[1].tick_params(axis='y', colors='tab:orange')
-        axv = fig.add_axes(axs[1].get_position(), frameon=False)#ax vertical linecut
-        axv.xaxis.tick_top()
-        axv.tick_params(axis='x', colors='tab:blue')
-        axv.tick_params(axis='y', colors='tab:blue')
-        self.fig = fig
-        self.ax = axs[0]
-        self.axv = axv
-        self.axh = axs[1]
-
-        # plot 2D data
-        g = self.s_gamma.value
-        v0,v1 = self.s_vlim.value
-        self.kw['gamma'],self.kw['vmin'],self.kw['vmax']=g,v0,v1
-        Painter.plot2d(self.x,self.y,self.w,fig=self.fig,ax=self.ax,**self.kw)
-        
-        self.im = [obj for obj in self.ax.get_children() if isinstance(obj, mpl.image.AxesImage) or isinstance(obj,mpl.collections.QuadMesh)][0]
-        
-        # vlinecut
-        xpos = self.s_xpos.value
-        indx = np.abs(x0 - xpos).argmin()# x0 may be a non uniform array
-        [self.linev1] = axs[0].plot(x[:,indx],y0,'tab:blue')
-        [self.linev2] = axv.plot(w[:,indx],y0,'tab:blue')
-        self.indx = indx
-        
-        # hlinecut
-        ypos = self.s_ypos.value
-        indy = np.abs(y0 - ypos).argmin()
-        [self.lineh1] = axs[0].plot(x0,y[indy,:],'tab:orange')
-        [self.lineh2] = axs[1].plot(x0,w[indy,:],'tab:orange')
-        self.indy = indy
-        
-        self.s_gamma.observe(self.on_gamma_change,'value')
-        self.s_vlim.observe(self.on_vlim_change,'value')
-        self.c_cmap.observe(self.on_cmap_change,'value')
-        self.s_xpos.observe(self.on_xpos_change,'value')
-        self.s_ypos.observe(self.on_ypos_change,'value')
+        display(ui,self.out)
+        self.draw(None)
+        if mpl.get_backend() == 'module://ipympl.backend_nbagg':#ipympl backend. Not good at this moment. But faster
+            self.s_gamma.observe(self.on_gamma_change,'value')
+            self.s_vlim.observe(self.on_vlim_change,'value')
+            self.c_cmap.observe(self.on_cmap_change,'value')
+            self.s_xpos.observe(self.on_xpos_change,'value')
+            self.s_ypos.observe(self.on_ypos_change,'value')
+            self.fig.canvas.mpl_connect('button_press_event', self.on_mouse_click)
+        else:# inline mode
+            self.s_gamma.observe(self.draw,'value')
+            self.s_vlim.observe(self.draw,'value')
+            self.c_cmap.observe(self.draw,'value')
+            self.s_xpos.observe(self.draw,'value')
+            self.s_ypos.observe(self.draw,'value')
         self.tb_showtools.observe(self.on_showtools_change,'value')
-        self.fig.canvas.mpl_connect('button_press_event', self.on_mouse_click)
         self.b_expMTX.on_click(self.exportMTX)
-    
+
+    def draw(self,event):
+        with self.out:
+            # axs
+            fig, axs = plt.subplots(1,2,figsize=(6.5,2.5),dpi=100)#main plot and h linecut
+            fig.canvas.header_visible = False
+            fig.canvas.toolbar_visible = False
+            fig.canvas.resizable = False
+            plt.subplots_adjust(wspace=0.4,bottom=0.2)
+            axs[1].yaxis.tick_right()
+            axs[1].tick_params(axis='x', colors='tab:orange')
+            axs[1].tick_params(axis='y', colors='tab:orange')
+            axv = fig.add_axes(axs[1].get_position(), frameon=False)#ax vertical linecut
+            axv.xaxis.tick_top()
+            axv.tick_params(axis='x', colors='tab:blue')
+            axv.tick_params(axis='y', colors='tab:blue')
+            self.fig = fig
+            self.ax = axs[0]
+            self.axv = axv
+            self.axh = axs[1]
+
+            # heatmap
+            g = self.s_gamma.value
+            v0,v1 = self.s_vlim.value
+            cmap = self.c_cmap.value
+            if cmap not in plt.colormaps():
+                cmap = 'seismic'
+            self.kw['gamma'],self.kw['vmin'],self.kw['vmax'],self.kw['cmap']=g,v0,v1,cmap
+            Painter.plot2d(self.x,self.y,self.w,fig=self.fig,ax=self.ax,**self.kw)
+            self.im = [obj for obj in self.ax.get_children() if isinstance(obj, mpl.image.AxesImage) or isinstance(obj,mpl.collections.QuadMesh)][0]
+
+            # vlinecut
+            x0 = self.x[0]
+            y0 = self.y[:,0]
+            xpos = self.s_xpos.value
+            indx = np.abs(x0 - xpos).argmin()# x0 may be a non uniform array
+            [self.linev1] = axs[0].plot(self.x[:,indx],y0,'tab:blue')
+            [self.linev2] = axv.plot(self.w[:,indx],y0,'tab:blue')
+            self.indx = indx
+
+            # hlinecut
+            ypos = self.s_ypos.value
+            indy = np.abs(y0 - ypos).argmin()
+            [self.lineh1] = axs[0].plot(x0,self.y[indy,:],'tab:orange')
+            [self.lineh2] = axs[1].plot(x0,self.w[indy,:],'tab:orange')
+            self.indy = indy
+            plt.show()
+            self.out.clear_output(wait=True)
+        
     def on_gamma_change(self,change):
         cmpname = self.c_cmap.value
         if cmpname not in plt.colormaps():
@@ -529,6 +545,7 @@ class Player:
         self.axh.relim()
         self.axh.autoscale_view()
         self.indy = indy
+
     def on_showtools_change(self,change):
         if change['new']:
             self.t_tools.layout.display = 'block'
@@ -539,7 +556,6 @@ class Player:
             self.tb_showtools.icon = 'plus-circle'
             self.tb_showtools.description = '...'
 
-        
     def on_mouse_click(self,event):
         x,y = event.xdata,event.ydata
         if self.s_xpos.value != x:
@@ -572,7 +588,7 @@ class Player:
     def play_inline(fPath,**kw):
         '''
         Obsolete.
-        For matplotlib inline mode.
+        Use inline mode because at this moment ipympl is not good enough for notebook.
         Generate an interactive 2D plot to play with
         x,y must be uniform spaced, autoflipped.
         '''
@@ -645,4 +661,3 @@ class Player:
         out = widgets.interactive_output(_play2d, {'xpos':sxpos,'ypos':sypos,'gamma':sgamma,'vlim':svlim})
         bexpMTX.on_click(_export)
         display(ui, out)
-
