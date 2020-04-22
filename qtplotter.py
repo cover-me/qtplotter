@@ -408,8 +408,28 @@ class Player:
         self.y = y
         self.w = w
         self.kw = kw
-
-        # UI
+        
+        self.create_ui()
+        self.draw(event=None)
+        
+        if mpl.get_backend() == 'module://ipympl.backend_nbagg':#ipympl backend. Not good at this moment. But faster
+            self.s_gamma.observe(self.on_gamma_change,'value')
+            self.s_vlim.observe(self.on_vlim_change,'value')
+            self.c_cmap.observe(self.on_cmap_change,'value')
+            self.s_xpos.observe(self.on_xpos_change,'value')
+            self.s_ypos.observe(self.on_ypos_change,'value')
+            self.fig.canvas.mpl_connect('button_press_event', self.on_mouse_click)
+        else:# inline mode
+            self.s_gamma.observe(self.draw,'value')
+            self.s_vlim.observe(self.draw,'value')
+            self.c_cmap.observe(self.draw,'value')
+            self.s_xpos.observe(self.draw,'value')
+            self.s_ypos.observe(self.draw,'value')
+        self.tb_showtools.observe(self.on_showtools_change,'value')
+        self.b_expMTX.on_click(self.exportMTX)
+        
+    def create_ui(self):
+        x,y,w = self.x,self.y,self.w
         x0 = x[0]
         y0 = y[:,0]
         xmin,xmax,dx = x[0,0],x[0,-1],x[0,1]-x[0,0]
@@ -436,33 +456,21 @@ class Player:
         self.tb_showtools.layout.width='50px'
         ## Top layer ui
         ui = widgets.Box([self.t_tools,self.tb_showtools])
-        self.out = widgets.Output()
-
-        if 'gamma' in kw:
-            self.s_gamma.value = kw['gamma']
-        if 'vlim' in kw:
-            self.s_vlim.value = kw['vlim']
-        if 'cmap' in kw:
-            self.c_cmap.value = kw['cmap']
-
-        display(ui,self.out)
-        self.draw(None)
-        if mpl.get_backend() == 'module://ipympl.backend_nbagg':#ipympl backend. Not good at this moment. But faster
-            self.s_gamma.observe(self.on_gamma_change,'value')
-            self.s_vlim.observe(self.on_vlim_change,'value')
-            self.c_cmap.observe(self.on_cmap_change,'value')
-            self.s_xpos.observe(self.on_xpos_change,'value')
-            self.s_ypos.observe(self.on_ypos_change,'value')
-            self.fig.canvas.mpl_connect('button_press_event', self.on_mouse_click)
-        else:# inline mode
-            self.s_gamma.observe(self.draw,'value')
-            self.s_vlim.observe(self.draw,'value')
-            self.c_cmap.observe(self.draw,'value')
-            self.s_xpos.observe(self.draw,'value')
-            self.s_ypos.observe(self.draw,'value')
-        self.tb_showtools.observe(self.on_showtools_change,'value')
-        self.b_expMTX.on_click(self.exportMTX)
-
+        self.out = widgets.Output()        
+        if 'gamma' in self.kw:
+            self.s_gamma.value = self.kw['gamma']
+        if 'vlim' in self.kw:
+            self.s_vlim.value = self.kw['vlim']
+        if 'cmap' in self.kw:
+            self.c_cmap.value = self.kw['cmap']
+            
+        if Player.PLAYER_STATIC:
+            from IPython.core.display import HTML
+            display(HTML('<button style="border:none;" title="For interaction, run the cell first.">+...</button>'))
+        else:
+            display(ui,self.out)
+            
+        
     def draw(self,event):
         # axs
         fig, axs = plt.subplots(1,2,figsize=(6.5,2.5),dpi=100)#main plot and h linecut
