@@ -30,7 +30,7 @@ Click the badges at the begging of this readme file to launch index.ipynb.
 
 The notebooks can be run on [mybinder.org](https://mybinder.org/) directly so that the shared data, no matter local or online, can be visualized interactively with a few clicks, by anyone, anywhere. 
 
-It usually takes about 20-40 seconds to launch, sometimes more than 1 minute. After having launched, use the `open->files...` menu to go to the files page where you can open other notebooks or download generated files.
+It usually takes about 40 seconds to launch, sometimes less than 20 s, sometimes more than 1 minute. After having launched, use the `open->files...` menu to go to the files page where you can open other notebooks or download generated files.
 
 ### Colab
 
