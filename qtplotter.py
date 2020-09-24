@@ -248,18 +248,37 @@ class Data2d:
         return x,y,w,[labels[cols[i]] for i in range(3)]
     
     @staticmethod
-    def saveMTX2d(fpath,x,y,w,labels):
-        with open(fpath, 'wb') as f:
+    def saveMTX2d(fPath,x,y,z,labels,xyUniform):
+        if not xyUniform:
+            raise('Use MTX format only when x and y are uniformly sampled!')
+        with open(fPath, 'wb') as f:
             labels = [i.replace(',','_') for i in labels]#',' is forbidden
-            xmin = x[0,0]#make sure this is real min! Guaranteed by Operation.autoflip() when importing the data.
-            xmax = x[0,-1]
-            ymin = y[0,0]
-            ymax = y[-1,0]
+            #make sure this is real min! Guaranteed by Operation.autoflip() when importing the data.
+            xmin,xmax,ymin,ymax = x[0,0],x[0,-1],y[0,0],y[-1,0]
             ny, nx = np.shape(y)
             f.write(('Units, %s,%s, %s, %s,%s, %s, %s,None(qtplotter), 0, 1\n'%(labels[2],labels[0],xmin,xmax,labels[1],ymin,ymax)).encode())#data_label,x_label,xmin,xmax,ylabel,ymin,ymax
-            f.write(('%d %d 1 %d\n'%(nx,ny,w.dtype.itemsize)).encode())#dimensions nx,ny,nz=1,data_element_size
-            w.T.ravel().tofile(f)
-    
+            f.write(('%d %d 1 %d\n'%(nx,ny,z.dtype.itemsize)).encode())#dimensions nx,ny,nz=1,data_element_size
+            z.T.ravel().tofile(f)
+            print('MTX data saved.')
+
+    @staticmethod
+    def saveNPY2d(fpath,x,y,z,labels,xyUniform):
+        if xyUniform:
+            #make sure this is real min! Guaranteed by Operation.autoflip() when importing the data.
+            xmin,xmax,ymin,ymax = x[0,0],x[0,-1],y[0,0],y[-1,0]
+            np.save(fpath[:-3]+'z.npy',z)
+            with open(fpath[:-3]+'meta.json', 'w') as f:
+                metadata = {'labels':labels,'xmin':xmin,'xmax':xmax,'ymin':ymin,'ymax':ymax}
+                json.dump(metadata, f)
+        else:
+            np.save(fpath[:-3]+'x.npy',x)
+            np.save(fpath[:-3]+'y.npy',y)
+            np.save(fpath[:-3]+'z.npy',z)
+            with open(fpath[:-3]+'meta.json', 'w') as f:
+                metadata = {'labels':labels}
+                json.dump(metadata, f)
+        print('NPY data saved.')
+
     @staticmethod
     def readSettings(fpath):
         '''
@@ -306,6 +325,30 @@ def read2d(fPath,**kw):
         return
     return x,y,w,labels
 
+def save2d(fPath,x,y,w,labels,xyUniform):
+    if fPath.endswith('.mtx'):
+        Data2d.saveMTX2d(fPath,x,y,w,labels,xyUniform)
+    elif fPath.endswith('.npz'):
+        Data2d.saveNPY2d(fPath,x,y,w,labels,xyUniform)
+    else:
+        raise('Format not recognized.')
+
+class Data1d:
+    '''
+    A collection of static methods loading/saving 2d data.
+    The data can be 1d, 2d or 3d.
+    '''
+    @staticmethod
+    def saveNPZ1d(fPath,x,y,labels):
+        np.savez(fPath,**{labels[0]:x,labels[1]:y})
+        print('NPZ data saved.')
+
+def save1d(fPath,x,y,labels):
+    if fPath.endswith('.npz'):
+        Data1d.saveNPZ1d(fPath,x,y,labels)
+    else:
+        raise('Format not recognized.')
+
 # plot
 class Painter:
     '''
@@ -316,7 +359,7 @@ class Painter:
         '''
         return a defult plot setting
         '''
-        return {'labels':['','',''],'useImshow':True,'gamma':0,'gmode':'moveColor',
+        return {'labels':['','',''],'xyUniform':True,'gamma':0,'gmode':'moveColor',
               'cmap':'seismic','vmin':None, 'vmax':None,'plotCbar':True}
     @staticmethod
     def plot2d(x,y,w,**kw):
@@ -332,6 +375,11 @@ class Painter:
         for i in ps:
             if i in kw:
                 ps[i] = kw[i]
+
+        #save fig data
+        if 'figdatato' in kw and kw['figdatato']:
+            save2d(kw['figdatato'],x,y,w,ps['labels'],ps['xyUniform'])
+
         if 'ax' in kw and 'fig' in kw:
             # sometimes you want to use your own ax
             fig = kw['fig']
@@ -352,12 +400,13 @@ class Painter:
                 imkw['cmap'] = Painter._get_cmap_gamma(imkw['cmap'],gamma_real,1024)
             else:# matplotlib default style
                 imkw['norm'] = mpl.colors.PowerNorm(gamma=gamma_real)
-
-        if ps['useImshow']:#slightly different from pcolormesh, especially if saved as vector formats. Imshow is better if it works. See the links in operation._get_quad() description.
+        
+        #Imshow is better than pcolormesh if it xy is uniformly spaced. See the links in operation._get_quad() description.
+        if ps['xyUniform']:
             #data need to be autoflipped when imported
             xy_range = (x1[0,0],x1[0,-1],y1[0,0],y1[-1,0])
             im = ax.imshow(w,aspect='auto',interpolation='none',origin='lower',extent=xy_range,**imkw)
-            #reset xy limits to the real bounday
+            #clip the image a little to set xy limits to the real numbers
             dx = x1[0,1]-x1[0,0]
             dy = y1[1,0]-y1[0,0]
             ax.set_xlim(xy_range[0]+dx/2.,xy_range[1]-dx/2.)
