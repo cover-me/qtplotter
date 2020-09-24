@@ -9,7 +9,7 @@ import numpy as np
 from urllib.request import urlopen
 from scipy import ndimage
 import ipywidgets as widgets
-
+from collections import OrderedDict
 # data operations
 class Operation:
     '''
@@ -72,6 +72,7 @@ class Operation:
         z[1:-1] = (z[2:] - z[:-2])/(y[2:] - y[:-2])
         z[0] = dzdy0
         z[-1] = dzdy1
+        return d
     
     @staticmethod
     def lowpass(d, x_width=0.5, y_height=0.5, method='gaussian'):
@@ -79,22 +80,51 @@ class Operation:
         z = d[2]
         kernel = Operation._create_kernel(x_width, y_height, 7, method)
         z[:] = ndimage.filters.convolve(z, kernel)
+        return d
 
     @staticmethod
     def scale(d,amp=[]):
         for i, ai in enumerate(amp):
             d[i] *= ai
+        return d
 
     @staticmethod
     def offset(d,off=[]):
         for i, oi in enumerate(off):
             d[i] += oi
+        return d
 
     @staticmethod
     def g_in_g2(d, rin):
         """z = z/(1-(z*Rin))/7.74809e-5. z: conductance in unit 'S', R in unit 'ohm' (SI units)"""
         G2 = 7.74809e-5#ohm^-1, 2e^2/h
         d[2] = d[2]/(1-(d[2]*rin))/G2
+        return d
+
+    @staticmethod
+    def xy_limit(d,xmin=None,xmax=None,ymin=None,ymax=None):
+        '''Crop data with xmin,xmax,ymin,ymax'''
+        x = d[0]
+        y = d[1]
+        if not all([i is None for i in [xmin,xmax,ymin,ymax]]):
+            x1 = 0 if xmin is None else np.searchsorted(x[0],xmin)
+            x2 = -1 if xmax is None else np.searchsorted(x[0],xmax,'right')-1
+            y1 = 0 if ymin is None else np.searchsorted(y[:,0],ymin)
+            y2 = -1 if ymax is None else np.searchsorted(y[:,0],ymax,'right')-1
+            return Operation.crop(d,x1,x2,y1,y2)
+        else:
+            return d
+
+    @staticmethod
+    def crop(d, left=0, right=-1, bottom=0, top=-1):
+        """Crop data by indexes. First and last values included"""
+        right = d[0].shape[1] + right + 1 if right < 0 else right + 1
+        top = d[0].shape[0] + top + 1 if top < 0 else top + 1
+        if (0 <= left < right <= d[0].shape[1] 
+            and 0 <= bottom < top <= d[0].shape[0]):
+            return d[:,bottom:top,left:right]
+        else:
+            raise ValueError('Invalid crop parameters: (%s,%s,%s,%s)'%(left,right,bottom,top))
 
     @staticmethod
     def autoflip(d):
@@ -212,7 +242,7 @@ class Data2d:
         pivot = Operation.autoflip(pivot)
 
         if cook:
-            cook(pivot)
+            pivot = cook(pivot)
 
         x,y,w = pivot[:3]
         return x,y,w,[labels[cols[i]] for i in range(3)]
@@ -229,6 +259,37 @@ class Data2d:
             f.write(('Units, %s,%s, %s, %s,%s, %s, %s,None(qtplotter), 0, 1\n'%(labels[2],labels[0],xmin,xmax,labels[1],ymin,ymax)).encode())#data_label,x_label,xmin,xmax,ylabel,ymin,ymax
             f.write(('%d %d 1 %d\n'%(nx,ny,w.dtype.itemsize)).encode())#dimensions nx,ny,nz=1,data_element_size
             w.T.ravel().tofile(f)
+    
+    @staticmethod
+    def readSettings(fpath):
+        '''
+        Read instrument settings. Copied and modified from Rubenknex/qtplot/qtplot/data.py.
+        '''
+        st = OrderedDict()
+        settings_file = fpath.replace('.dat','.set')
+        if os.path.isfile(settings_file):
+            with open(settings_file) as f:
+                lines = f.readlines()
+            current_instrument = None
+            for line in lines:
+                line = line.rstrip('\n\t\r')
+                if line == '':
+                    continue
+                if not line.startswith('\t'):
+                    name, value = line.split(': ', 1)
+                    if (line.startswith('Filename: ') or
+                       line.startswith('Timestamp: ')):
+                        st.update([(name, value)])
+                    else:#'Instrument: ivvi'
+                        current_instrument = value
+                        new = [(current_instrument, OrderedDict())]
+                        st.update(new)
+                else:
+                    param, value = line.split(': ', 1)
+                    param = param.strip()
+                    new = [(param, value)]
+                    st[current_instrument].update(new)
+        return st
 
 def read2d(fPath,**kw):
     '''
@@ -261,7 +322,7 @@ class Painter:
     def plot2d(x,y,w,**kw):
         '''
         Plot 2D figure. We need this method because plotting 2d is not as easy as plotting 1d.
-        imshow() and pcolormesh() should be used in different situations.
+        imshow() and pcolormesh() should be used in different situations. imshow() is prefered if x and y are uniformly spaced.
         For some interesting issues, check these links:
         https://cover-me.github.io/2019/02/17/Save-2d-data-as-a-figure.html
         https://cover-me.github.io/2019/04/04/Save-2d-data-as-a-figure-II.html
@@ -278,7 +339,9 @@ class Painter:
         else:
             # Publication quality first. Which means you don't want large figures with small fonts as those default figures.
             # dpi is set to 120 so the figure is enlarged for the mornitor.
-            fig, ax = plt.subplots(figsize=(3.375,2),dpi=120)
+            figsize = kw['figsize'] if 'figsize' in kw else (3.375,2)
+            dpi = kw['dpi'] if 'dpi' in kw else 120
+            fig, ax = plt.subplots(figsize=figsize,dpi=dpi)
 
         x1 = Operation._get_quad(x)# explained here: https://cover-me.github.io/2019/02/17/Save-2d-data-as-a-figure.html
         y1 = Operation._get_quad(y)
@@ -291,8 +354,14 @@ class Painter:
                 imkw['norm'] = mpl.colors.PowerNorm(gamma=gamma_real)
 
         if ps['useImshow']:#slightly different from pcolormesh, especially if saved as vector formats. Imshow is better if it works. See the links in operation._get_quad() description.
+            #data need to be autoflipped when imported
             xy_range = (x1[0,0],x1[0,-1],y1[0,0],y1[-1,0])
             im = ax.imshow(w,aspect='auto',interpolation='none',origin='lower',extent=xy_range,**imkw)
+            #reset xy limits to the real bounday
+            dx = x1[0,1]-x1[0,0]
+            dy = y1[1,0]-y1[0,0]
+            ax.set_xlim(xy_range[0]+dx/2.,xy_range[1]-dx/2.)
+            ax.set_ylim(xy_range[2]+dy/2.,xy_range[3]-dy/2.)
         else:
             im = ax.pcolormesh(x1,y1,w,**imkw)
 
@@ -328,51 +397,70 @@ class Painter:
         return cmap
     
     @staticmethod
-    def simpAx(ax=None,cbar=None,im=None,n=(None,None,None),pad=(-5,-15,-10)):
+    def simpAx(ax=None,cbar=None,im=None,n=(None,None,None),apply=(True,True,True),pad=(-5,-15,-10)):
         '''Simplify the ticks'''
         if ax is None:
             ax = plt.gca()
-        _min,_max = ax.get_xlim()
-        if n[0] is not None:
-            a = 10**(-n[0])
-            _min = np.ceil(_min/a)*a
-            _max = np.floor(_max/a)*a
-            ax.set_xlim(_min,_max)
-        ax.set_xticks([_min,_max])
-        ax.xaxis.labelpad = pad[0]
-
-        _min,_max = ax.get_ylim()
-        if n[1] is not None:
-            a = 10**(-n[1])
-            _min = np.ceil(_min/a)*a
-            _max = np.floor(_max/a)*a
-            ax.set_ylim(_min,_max)
-        ax.set_yticks([_min,_max])
-        ax.yaxis.labelpad = pad[1]
-
-        #assumes a vertical colorbar
-        if cbar is None:
-            if im:
-                cbar = im.colorbar
-            else:
-                ims = [obj for obj in ax.get_children() if isinstance(obj, mpl.image.AxesImage) or isinstance(obj,mpl.collections.QuadMesh)]
-                if ims:
-                    im = ims[0]
-                    cbar = im.colorbar
-                else:
-                    im,cbar = None, None
-        if cbar is not None and im is not None:
-            _min,_max = cbar.ax.get_ylim()
-            label = cbar.ax.get_ylabel()
-            if n[2] is not None:
-                a = 10**(-n[2])
+        
+        if apply[0]:
+            _min,_max = ax.get_xlim()
+            if n[0] is not None:
+                a = 10**(-n[0])
                 _min = np.ceil(_min/a)*a
                 _max = np.floor(_max/a)*a
-                im.set_clim(_min,_max)
-            cbar.set_ticks([_min,_max])
-            cbar.ax.yaxis.labelpad = pad[2]
-            cbar.ax.set_ylabel(label)  
-    
+            ax.set_xticks([_min,_max])
+            ax.xaxis.labelpad = pad[0]
+
+        if apply[1]:
+            _min,_max = ax.get_ylim()
+            if n[1] is not None:
+                a = 10**(-n[1])
+                _min = np.ceil(_min/a)*a
+                _max = np.floor(_max/a)*a
+            ax.set_yticks([_min,_max])
+            ax.yaxis.labelpad = pad[1]
+            
+        if apply[2]:
+            #assumes a vertical colorbar
+            if cbar is None:
+                if im:
+                    cbar = im.colorbar
+                else:
+                    ims = [obj for obj in ax.get_children() if isinstance(obj, mpl.image.AxesImage) or isinstance(obj,mpl.collections.QuadMesh)]
+                    if ims:
+                        im = ims[0]
+                        cbar = im.colorbar
+                    else:
+                        im,cbar = None, None
+            if cbar is not None and im is not None:
+                _min,_max = cbar.ax.get_ylim()
+                label = cbar.ax.get_ylabel()
+                if n[2] is not None:
+                    a = 10**(-n[2])
+                    _min = np.ceil(_min/a)*a
+                    _max = np.floor(_max/a)*a
+                    #im.set_clim(_min,_max)
+                cbar.set_ticks([_min,_max])
+                cbar.ax.yaxis.labelpad = pad[2]
+                cbar.ax.set_ylabel(label)  
+            
+    @staticmethod
+    def formatLabel(fname,s):
+        '''
+        see qtplot/export.py
+        '''
+        conversions = {
+            '<filename>': os.path.split(fname)[-1],
+            '<operations>': '',
+        }
+        for old, new in conversions.items():
+            s = s.replace(old, new)
+        for key, value in Data2d.readSettings(fname).items():
+            if isinstance(value, dict):
+                for key_, value_ in value.items():
+                    s = s.replace('<%s:%s>'%(key,key_), '%s'%value_)
+        return s
+
 def plot(fPath,**kw):
     '''Generate a 2d or 1d plot with customize parameters'''
     x,y,w,labels = read2d(fPath,**kw)
