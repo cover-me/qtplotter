@@ -2,7 +2,7 @@
 It's a simpler, easier-to-access, notebook-based version of Rubenknex/qtplot. Most of the code is grabbed from qtplot.
 The project is hosted on https://github.com/cover-me/qtplotter
 '''
-import os
+import os, sys
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
@@ -10,6 +10,12 @@ from urllib.request import urlopen
 from scipy import ndimage
 import ipywidgets as widgets
 from collections import OrderedDict
+
+# Print module versions
+print('python:',sys.version)
+print('matplotlib:', mpl.__version__)
+print('numpy:', np.__version__)
+
 # data operations
 class Operation:
     '''
@@ -248,10 +254,10 @@ class Data2d:
         return x,y,w,[labels[cols[i]] for i in range(3)]
     
     @staticmethod
-    def saveMTX2d(fPath,x,y,z,labels,xyUniform):
+    def saveMTX2d(fpath,x,y,z,labels,xyUniform):
         if not xyUniform:
             raise('Use MTX format only when x and y are uniformly sampled!')
-        with open(fPath, 'wb') as f:
+        with open(fpath, 'wb') as f:
             labels = [i.replace(',','_') for i in labels]#',' is forbidden
             #make sure this is real min! Guaranteed by Operation.autoflip() when importing the data.
             xmin,xmax,ymin,ymax = x[0,0],x[0,-1],y[0,0],y[-1,0]
@@ -259,7 +265,7 @@ class Data2d:
             f.write(('Units, %s,%s, %s, %s,%s, %s, %s,None(qtplotter), 0, 1\n'%(labels[2],labels[0],xmin,xmax,labels[1],ymin,ymax)).encode())#data_label,x_label,xmin,xmax,ylabel,ymin,ymax
             f.write(('%d %d 1 %d\n'%(nx,ny,z.dtype.itemsize)).encode())#dimensions nx,ny,nz=1,data_element_size
             z.T.ravel().tofile(f)
-            print('MTX data saved.')
+            print('MTX data saved: %s'%fpath)
 
     @staticmethod
     def saveNPY2d(fpath,x,y,z,labels,xyUniform):
@@ -277,7 +283,7 @@ class Data2d:
             with open(fpath[:-3]+'meta.json', 'w') as f:
                 metadata = {'labels':labels}
                 json.dump(metadata, f)
-        print('NPY data saved.')
+        print('NPY data saved: %s'%fpath)
 
     @staticmethod
     def readSettings(fpath):
