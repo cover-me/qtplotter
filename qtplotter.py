@@ -2,12 +2,11 @@
 It's a simpler, easier-to-access, notebook-based version of Rubenknex/qtplot. Most of the code is grabbed from qtplot.
 The project is hosted on https://github.com/cover-me/qtplotter
 '''
-import os, sys, zipfile
+import os, sys, zipfile,scipy.ndimage
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
 from urllib.request import urlopen
-from scipy import ndimage
 import ipywidgets as widgets
 from collections import OrderedDict
 
@@ -15,6 +14,7 @@ from collections import OrderedDict
 print('python:',sys.version)
 print('matplotlib:', mpl.__version__)
 print('numpy:', np.__version__)
+print('scipy:', scipy.__version__)
 
 # data operations
 class Operation:
@@ -85,7 +85,7 @@ class Operation:
         """Perform a low-pass filter."""
         z = d[2]
         kernel = Operation._create_kernel(x_width, y_height, 7, method)
-        z[:] = ndimage.filters.convolve(z, kernel)
+        z[:] = scipy.ndimage.filters.convolve(z, kernel)
         return d
 
     @staticmethod
@@ -153,6 +153,32 @@ class Operation:
             d = d[:,::-1,:]
         return d
 
+    @staticmethod
+    def linecut(d,x=None,y=None):
+        '''
+        Extract data from a linecut, assume data is on grid, uniformly sampled, and autoflipped
+        scipy.interpolate.interp2d is too slow, scipy.interpolate.RectBivariateSpline not good
+        It's different from the simpler linecut in the interactive figure.
+        '''
+        if (x is None and y is None) or (x is None and len(np.shape(y))>0) or (y is None and len(np.shape(x))>0):
+            raise ValueError('Invalid parameters for linecut')
+        x0 = d[0][0]
+        y0 = d[1][:,0]
+        # horizontal linecut
+        if x is None:
+            x = x0
+            y = np.full(len(x0), y)
+        # vertical linecut
+        if y is None:
+            y = y0
+            x = np.full(len(y0), x)
+        #scale to "index" space
+        indx = (x-x0[0])/(x0[-1]-x0[0])*(len(x0)-1)
+        indy = (y-y0[0])/(y0[-1]-y0[0])*(len(y0)-1)
+        z = scipy.ndimage.map_coordinates(d[2], [indy, indx], order=1)
+        return np.vstack((x,y,z))
+        
+        
 # data loading/saving
 class Data2d:
     '''
@@ -357,7 +383,7 @@ class Data1d:
     @staticmethod
     def saveNPZ1d(fPath,x,y,labels):
         np.savez(fPath,**{labels[0]:x,labels[1]:y})
-        print('NPZ data saved.')
+        print('NPZ data saved: %s'%fPath)
 
 def save1d(fPath,x,y,labels):
     if fPath.endswith('.npz'):
