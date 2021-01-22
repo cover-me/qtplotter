@@ -447,14 +447,14 @@ class Painter:
         if ps['xyUniform']:
             #data need to be autoflipped when imported
             xy_range = (x1[0,0],x1[0,-1],y1[0,0],y1[-1,0])
-            im = ax.imshow(w,aspect='auto',interpolation='none',origin='lower',extent=xy_range,**imkw)
+            im = ax.imshow(w,aspect='auto',interpolation='nearest',origin='lower',extent=xy_range,**imkw)
             #clip the image a little to set xy limits to the real numbers
             dx = x1[0,1]-x1[0,0]
             dy = y1[1,0]-y1[0,0]
             ax.set_xlim(xy_range[0]+dx/2.,xy_range[1]-dx/2.)
             ax.set_ylim(xy_range[2]+dy/2.,xy_range[3]-dy/2.)
         else:
-            im = ax.pcolormesh(x1,y1,w,**imkw)
+            im = ax.pcolormesh(x1,y1,w,rasterized=True,**imkw)
 
         if ps['plotCbar']:
             cbar = fig.colorbar(im,ax=ax)
