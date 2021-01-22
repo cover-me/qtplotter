@@ -143,8 +143,10 @@ class Operation:
         xb = abs(x[0,0]-x[-1,0])
         ya = abs(y[0,0]-y[0,-1])
         yb = abs(y[0,0]-y[-1,0])
+        # Make sure x changes faster inside rows (xa>xb), y changes faster inside columns (yb>ya)
         if (xa<xb and yb<ya) or (xa>xb and yb<ya and yb/ya<xb/xa) or (xa<xb and yb>ya and ya/yb>xa/xb):
             d = np.transpose(d, (0, 2, 1))# swap axis 1 and 2
+        # Make coordinates are in overall increasing order
         x = d[0]#note: x y won't unpdate after d changes. There maybe nan in last lines of x and y.
         y = d[1]
         if x[0,0]>x[0,-1]:
@@ -272,8 +274,9 @@ class Data2d:
         pivot = pivot[:,~nans,:]
 
         # Some values in the last line of x and y may be nan. Recalculate these values. Keep w untouched.
-        nans = np.isnan(pivot[0,-1,:])
-        pivot[:2,-1,nans] = pivot[:2,-2,nans]*2.-pivot[:2,-3,nans]
+        if np.shape(pivot)[1]>1:
+            nans = np.isnan(pivot[0,-1,:])
+            pivot[:2,-1,nans] = pivot[:2,-2,nans]*2.-pivot[:2,-3,nans]
 
         # autoflip for filters and imshow()
         pivot = Operation.autoflip(pivot)
@@ -432,7 +435,7 @@ class Painter:
             figsize = kw['figsize'] if 'figsize' in kw else (3.375,2)
             dpi = kw['dpi'] if 'dpi' in kw else 120
             fig, ax = plt.subplots(figsize=figsize,dpi=dpi)
-
+            
         x1 = Operation._get_quad(x)# explained here: https://cover-me.github.io/2019/02/17/Save-2d-data-as-a-figure.html
         y1 = Operation._get_quad(y)
         imkw = {'cmap':ps['cmap'],'vmin':ps['vmin'],'vmax':ps['vmax']}
@@ -578,11 +581,17 @@ class Player:
         if 'labels' not in kw:
             kw['labels'] = labels
         
-        if len(y)==1:#1d data
-            x = np.vstack([x,x,x])
-            y = np.vstack([y-.5,y,y+.5])
-            w = np.vstack([w,w,w])
-
+        #1d data
+        if len(x)==1:
+            if x[0,0]!=x[0,-1]:
+                x = np.vstack([x,x])
+                y = np.vstack([y,y+1])
+            else:
+                x = np.vstack([x,x+1])
+                y = np.vstack([y,y])
+            w = np.vstack([w,w])
+            x,y,w = Operation.autoflip(np.stack([x,y,w],axis=0))
+ 
         self.x = x
         self.y = y
         self.w = w
@@ -629,9 +638,9 @@ class Player:
         vb3 = widgets.VBox([self.b_expMTX,self.html_exp])
         self.t_tools = widgets.Tab(children=[vb1,vb2,vb3])
         [self.t_tools.set_title(i,j) for i,j in zip(range(3), ['linecuts','color','export'])]
-        self.t_tools.layout.display = 'none'
+        self.t_tools.layout.display = 'block'
         ## A toggle button
-        self.tb_showtools = widgets.ToggleButton(value=False, description='...', tooltip='Toggle Tools', icon='plus-circle')
+        self.tb_showtools = widgets.ToggleButton(value=True, description='', tooltip='Toggle Tools', icon='minus-circle')
         self.tb_showtools.layout.width='50px'
         ## Top layer ui
         ui = widgets.Box([self.t_tools,self.tb_showtools])
