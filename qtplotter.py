@@ -2,13 +2,19 @@
 It's a simpler, easier-to-access, notebook-based version of Rubenknex/qtplot. Most of the code is grabbed from qtplot.
 The project is hosted on https://github.com/cover-me/qtplotter
 '''
-import os
+import os, sys, zipfile,scipy.ndimage
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
 from urllib.request import urlopen
-from scipy import ndimage
 import ipywidgets as widgets
+from collections import OrderedDict
+
+# Print module versions
+print('python:',sys.version)
+print('matplotlib:', mpl.__version__)
+print('numpy:', np.__version__)
+print('scipy:', scipy.__version__)
 
 # data operations
 class Operation:
@@ -72,29 +78,59 @@ class Operation:
         z[1:-1] = (z[2:] - z[:-2])/(y[2:] - y[:-2])
         z[0] = dzdy0
         z[-1] = dzdy1
+        return d
     
     @staticmethod
     def lowpass(d, x_width=0.5, y_height=0.5, method='gaussian'):
         """Perform a low-pass filter."""
         z = d[2]
         kernel = Operation._create_kernel(x_width, y_height, 7, method)
-        z[:] = ndimage.filters.convolve(z, kernel)
+        z[:] = scipy.ndimage.filters.convolve(z, kernel)
+        return d
 
     @staticmethod
     def scale(d,amp=[]):
         for i, ai in enumerate(amp):
             d[i] *= ai
+        return d
 
     @staticmethod
     def offset(d,off=[]):
         for i, oi in enumerate(off):
             d[i] += oi
+        return d
 
     @staticmethod
     def g_in_g2(d, rin):
         """z = z/(1-(z*Rin))/7.74809e-5. z: conductance in unit 'S', R in unit 'ohm' (SI units)"""
         G2 = 7.74809e-5#ohm^-1, 2e^2/h
         d[2] = d[2]/(1-(d[2]*rin))/G2
+        return d
+
+    @staticmethod
+    def xy_limit(d,xmin=None,xmax=None,ymin=None,ymax=None):
+        '''Crop data with xmin,xmax,ymin,ymax'''
+        x = d[0]
+        y = d[1]
+        if not all([i is None for i in [xmin,xmax,ymin,ymax]]):
+            x1 = 0 if xmin is None else np.searchsorted(x[0],xmin)
+            x2 = -1 if xmax is None else np.searchsorted(x[0],xmax,'right')-1
+            y1 = 0 if ymin is None else np.searchsorted(y[:,0],ymin)
+            y2 = -1 if ymax is None else np.searchsorted(y[:,0],ymax,'right')-1
+            return Operation.crop(d,x1,x2,y1,y2)
+        else:
+            return d
+
+    @staticmethod
+    def crop(d, left=0, right=-1, bottom=0, top=-1):
+        """Crop data by indexes. First and last values included"""
+        right = d[0].shape[1] + right + 1 if right < 0 else right + 1
+        top = d[0].shape[0] + top + 1 if top < 0 else top + 1
+        if (0 <= left < right <= d[0].shape[1] 
+            and 0 <= bottom < top <= d[0].shape[0]):
+            return d[:,bottom:top,left:right]
+        else:
+            raise ValueError('Invalid crop parameters: (%s,%s,%s,%s)'%(left,right,bottom,top))
 
     @staticmethod
     def autoflip(d):
@@ -107,8 +143,10 @@ class Operation:
         xb = abs(x[0,0]-x[-1,0])
         ya = abs(y[0,0]-y[0,-1])
         yb = abs(y[0,0]-y[-1,0])
+        # Make sure x changes faster inside rows (xa>xb), y changes faster inside columns (yb>ya)
         if (xa<xb and yb<ya) or (xa>xb and yb<ya and yb/ya<xb/xa) or (xa<xb and yb>ya and ya/yb>xa/xb):
             d = np.transpose(d, (0, 2, 1))# swap axis 1 and 2
+        # Make coordinates are in overall increasing order
         x = d[0]#note: x y won't unpdate after d changes. There maybe nan in last lines of x and y.
         y = d[1]
         if x[0,0]>x[0,-1]:
@@ -117,12 +155,47 @@ class Operation:
             d = d[:,::-1,:]
         return d
 
+    @staticmethod
+    def linecut(d,x=None,y=None):
+        '''
+        Extract data from a linecut, assume data is on grid, uniformly sampled, and autoflipped
+        scipy.interpolate.interp2d is too slow, scipy.interpolate.RectBivariateSpline not good
+        It's different from the simpler linecut in the interactive figure.
+        '''
+        if (x is None and y is None) or (x is None and len(np.shape(y))>0) or (y is None and len(np.shape(x))>0):
+            raise ValueError('Invalid parameters for linecut')
+        x0 = d[0][0]
+        y0 = d[1][:,0]
+        # horizontal linecut
+        if x is None:
+            x = x0
+            y = np.full(len(x0), y)
+        # vertical linecut
+        if y is None:
+            y = y0
+            x = np.full(len(y0), x)
+        #scale to "index" space
+        indx = (x-x0[0])/(x0[-1]-x0[0])*(len(x0)-1)
+        indy = (y-y0[0])/(y0[-1]-y0[0])*(len(y0)-1)
+        z = scipy.ndimage.map_coordinates(d[2], [indy, indx], order=1)
+        return np.vstack((x,y,z))
+        
+        
 # data loading/saving
 class Data2d:
     '''
     A collection of static methods loading/saving 2d data.
     The data can be 1d, 2d or 3d.
     '''
+    @staticmethod
+    def myopen(fPath):
+        if mpl.is_url(fPath):
+            return lambda url,mode: urlopen(url)
+        elif '.zip/' in fPath:
+            return lambda url,mode: zipfile.ZipFile(url.split('.zip/')[0]+'.zip').open(url.split('.zip/')[1])
+        else:
+            return open
+    
     @staticmethod
     def readMTX(fPath):
         '''
@@ -134,10 +207,7 @@ class Data2d:
         mtx files can be generated by spyview and qtplot
         mtx data is 3d (nx*ny*nz). However, we assume nz = 1 (which is always the case because we only get them from spyview and qtplot) for simplicity.
         '''
-        if mpl.is_url(fPath):
-            open2 = lambda url,mode: urlopen(url)
-        else:
-            open2 = open
+        open2 = Data2d.myopen(fPath)
         with open2(fPath, 'rb') as f:
             line1 = f.readline().decode().rstrip('\n\t\r')
             if line1.startswith('Units'):#MTX file
@@ -163,10 +233,7 @@ class Data2d:
         '''
         sizes = []# nx,ny,nz for each dimension of scan. Default a 3d scan (1D and 2D are also kinds of 3D).
         labels = []# labelx,labely,labelw
-        if mpl.is_url(fPath):
-            open2 = lambda url,mode: urlopen(url)
-        else:
-            open2 = open
+        open2 = Data2d.myopen(fPath)
         # read comments
         with open2(fPath, 'rb') as f:
             for line in f:
@@ -178,9 +245,11 @@ class Data2d:
                     sizes.append(int(line.split(': ', 1)[1]))
                 if len(line) > 0 and line[0] != '#':# where comments end
                     break
-        # load data
-        print('File: %s, cols: %s'%(os.path.split(fPath)[1],[labels[i] for i in cols]))
-        d = np.loadtxt(fPath,usecols=cols)
+            # Reposition pointer at the beginning of the file
+            f.seek(0, 0)
+            # load data
+            print('File: %s, cols: %s'%(os.path.split(fPath)[1],[labels[i] for i in cols]))
+            d = np.loadtxt(f,usecols=cols)
 
         #assume this is data from a 3D scan, we call the element of D1/D2/D3 the point/line/page
         n_per_line = sizes[0]
@@ -205,30 +274,86 @@ class Data2d:
         pivot = pivot[:,~nans,:]
 
         # Some values in the last line of x and y may be nan. Recalculate these values. Keep w untouched.
-        nans = np.isnan(pivot[0,-1,:])
-        pivot[:2,-1,nans] = pivot[:2,-2,nans]*2.-pivot[:2,-3,nans]
+        if np.shape(pivot)[1]>1:
+            nans = np.isnan(pivot[0,-1,:])
+            pivot[:2,-1,nans] = pivot[:2,-2,nans]*2.-pivot[:2,-3,nans]
 
         # autoflip for filters and imshow()
         pivot = Operation.autoflip(pivot)
 
         if cook:
-            cook(pivot)
+            pivot = cook(pivot)
 
         x,y,w = pivot[:3]
         return x,y,w,[labels[cols[i]] for i in range(3)]
     
     @staticmethod
-    def saveMTX2d(fpath,x,y,w,labels):
+    def saveMTX2d(fpath,x,y,z,labels,xyUniform):
+        if not xyUniform:
+            raise('Use MTX format only when x and y are uniformly sampled!')
         with open(fpath, 'wb') as f:
             labels = [i.replace(',','_') for i in labels]#',' is forbidden
-            xmin = x[0,0]#make sure this is real min! Guaranteed by Operation.autoflip() when importing the data.
-            xmax = x[0,-1]
-            ymin = y[0,0]
-            ymax = y[-1,0]
+            #make sure this is real min! Guaranteed by Operation.autoflip() when importing the data.
+            xmin,xmax,ymin,ymax = x[0,0],x[0,-1],y[0,0],y[-1,0]
             ny, nx = np.shape(y)
             f.write(('Units, %s,%s, %s, %s,%s, %s, %s,None(qtplotter), 0, 1\n'%(labels[2],labels[0],xmin,xmax,labels[1],ymin,ymax)).encode())#data_label,x_label,xmin,xmax,ylabel,ymin,ymax
-            f.write(('%d %d 1 %d\n'%(nx,ny,w.dtype.itemsize)).encode())#dimensions nx,ny,nz=1,data_element_size
-            w.T.ravel().tofile(f)
+            f.write(('%d %d 1 %d\n'%(nx,ny,z.dtype.itemsize)).encode())#dimensions nx,ny,nz=1,data_element_size
+            z.T.ravel().tofile(f)
+            print('MTX data saved: %s'%fpath)
+
+    @staticmethod
+    def saveNPY2d(fpath,x,y,z,labels,xyUniform):
+        if xyUniform:
+            #make sure this is real min! Guaranteed by Operation.autoflip() when importing the data.
+            xmin,xmax,ymin,ymax = x[0,0],x[0,-1],y[0,0],y[-1,0]
+            np.save(fpath[:-3]+'z.npy',z)
+            with open(fpath[:-3]+'meta.json', 'w') as f:
+                metadata = {'labels':labels,'xmin':xmin,'xmax':xmax,'ymin':ymin,'ymax':ymax}
+                json.dump(metadata, f)
+        else:
+            np.save(fpath[:-3]+'x.npy',x)
+            np.save(fpath[:-3]+'y.npy',y)
+            np.save(fpath[:-3]+'z.npy',z)
+            with open(fpath[:-3]+'meta.json', 'w') as f:
+                metadata = {'labels':labels}
+                json.dump(metadata, f)
+        print('NPY data saved: %s'%fpath)
+
+    @staticmethod
+    def readSettings(fpath):
+        '''
+        Read instrument settings. Copied and modified from Rubenknex/qtplot/qtplot/data.py.
+        '''
+        st = OrderedDict()
+        settings_file = fpath.replace('.dat','.set')
+        try:
+            open2 = Data2d.myopen(settings_file)
+            with open2(settings_file,'rb') as f:
+                lines = f.readlines()
+        except:
+            print('Error opening setting file: %s'%settings_file)
+            return st
+        current_instrument = None
+        for line in lines:
+            line = line.decode()
+            line = line.rstrip('\n\t\r')
+            if line == '':
+                continue
+            if not line.startswith('\t'):
+                name, value = line.split(': ', 1)
+                if (line.startswith('Filename: ') or
+                   line.startswith('Timestamp: ')):
+                    st.update([(name, value)])
+                else:#'Instrument: ivvi'
+                    current_instrument = value
+                    new = [(current_instrument, OrderedDict())]
+                    st.update(new)
+            else:
+                param, value = line.split(': ', 1)
+                param = param.strip()
+                new = [(param, value)]
+                st[current_instrument].update(new)
+        return st
 
 def read2d(fPath,**kw):
     '''
@@ -245,6 +370,30 @@ def read2d(fPath,**kw):
         return
     return x,y,w,labels
 
+def save2d(fPath,x,y,w,labels,xyUniform):
+    if fPath.endswith('.mtx'):
+        Data2d.saveMTX2d(fPath,x,y,w,labels,xyUniform)
+    elif fPath.endswith('.npz'):
+        Data2d.saveNPY2d(fPath,x,y,w,labels,xyUniform)
+    else:
+        raise('Format not recognized.')
+
+class Data1d:
+    '''
+    A collection of static methods loading/saving 2d data.
+    The data can be 1d, 2d or 3d.
+    '''
+    @staticmethod
+    def saveNPZ1d(fPath,x,y,labels):
+        np.savez(fPath,**{labels[0]:x,labels[1]:y})
+        print('NPZ data saved: %s'%fPath)
+
+def save1d(fPath,x,y,labels):
+    if fPath.endswith('.npz'):
+        Data1d.saveNPZ1d(fPath,x,y,labels)
+    else:
+        raise('Format not recognized.')
+
 # plot
 class Painter:
     '''
@@ -255,13 +404,13 @@ class Painter:
         '''
         return a defult plot setting
         '''
-        return {'labels':['','',''],'useImshow':True,'gamma':0,'gmode':'moveColor',
+        return {'labels':['','',''],'xyUniform':True,'gamma':0,'gmode':'moveColor',
               'cmap':'seismic','vmin':None, 'vmax':None,'plotCbar':True}
     @staticmethod
     def plot2d(x,y,w,**kw):
         '''
         Plot 2D figure. We need this method because plotting 2d is not as easy as plotting 1d.
-        imshow() and pcolormesh() should be used in different situations.
+        imshow() and pcolormesh() should be used in different situations. imshow() is prefered if x and y are uniformly spaced.
         For some interesting issues, check these links:
         https://cover-me.github.io/2019/02/17/Save-2d-data-as-a-figure.html
         https://cover-me.github.io/2019/04/04/Save-2d-data-as-a-figure-II.html
@@ -271,6 +420,11 @@ class Painter:
         for i in ps:
             if i in kw:
                 ps[i] = kw[i]
+
+        #save fig data
+        if 'figdatato' in kw and kw['figdatato']:
+            save2d(kw['figdatato'],x,y,w,ps['labels'],ps['xyUniform'])
+
         if 'ax' in kw and 'fig' in kw:
             # sometimes you want to use your own ax
             fig = kw['fig']
@@ -278,8 +432,10 @@ class Painter:
         else:
             # Publication quality first. Which means you don't want large figures with small fonts as those default figures.
             # dpi is set to 120 so the figure is enlarged for the mornitor.
-            fig, ax = plt.subplots(figsize=(3.375,2),dpi=120)
-
+            figsize = kw['figsize'] if 'figsize' in kw else (3.375,2)
+            dpi = kw['dpi'] if 'dpi' in kw else 120
+            fig, ax = plt.subplots(figsize=figsize,dpi=dpi)
+            
         x1 = Operation._get_quad(x)# explained here: https://cover-me.github.io/2019/02/17/Save-2d-data-as-a-figure.html
         y1 = Operation._get_quad(y)
         imkw = {'cmap':ps['cmap'],'vmin':ps['vmin'],'vmax':ps['vmax']}
@@ -289,12 +445,19 @@ class Painter:
                 imkw['cmap'] = Painter._get_cmap_gamma(imkw['cmap'],gamma_real,1024)
             else:# matplotlib default style
                 imkw['norm'] = mpl.colors.PowerNorm(gamma=gamma_real)
-
-        if ps['useImshow']:#slightly different from pcolormesh, especially if saved as vector formats. Imshow is better if it works. See the links in operation._get_quad() description.
+        
+        #Imshow is better than pcolormesh if it xy is uniformly spaced. See the links in operation._get_quad() description.
+        if ps['xyUniform']:
+            #data need to be autoflipped when imported
             xy_range = (x1[0,0],x1[0,-1],y1[0,0],y1[-1,0])
-            im = ax.imshow(w,aspect='auto',interpolation='none',origin='lower',extent=xy_range,**imkw)
+            im = ax.imshow(w,aspect='auto',interpolation='nearest',origin='lower',extent=xy_range,**imkw)
+            #clip the image a little to set xy limits to the real numbers
+            dx = x1[0,1]-x1[0,0]
+            dy = y1[1,0]-y1[0,0]
+            ax.set_xlim(xy_range[0]+dx/2.,xy_range[1]-dx/2.)
+            ax.set_ylim(xy_range[2]+dy/2.,xy_range[3]-dy/2.)
         else:
-            im = ax.pcolormesh(x1,y1,w,**imkw)
+            im = ax.pcolormesh(x1,y1,w,rasterized=True,**imkw)
 
         if ps['plotCbar']:
             cbar = fig.colorbar(im,ax=ax)
@@ -328,51 +491,70 @@ class Painter:
         return cmap
     
     @staticmethod
-    def simpAx(ax=None,cbar=None,im=None,n=(None,None,None),pad=(-5,-15,-10)):
+    def simpAx(ax=None,cbar=None,im=None,n=(None,None,None),apply=(True,True,True),pad=(-5,-15,-10)):
         '''Simplify the ticks'''
         if ax is None:
             ax = plt.gca()
-        _min,_max = ax.get_xlim()
-        if n[0] is not None:
-            a = 10**(-n[0])
-            _min = np.ceil(_min/a)*a
-            _max = np.floor(_max/a)*a
-            ax.set_xlim(_min,_max)
-        ax.set_xticks([_min,_max])
-        ax.xaxis.labelpad = pad[0]
-
-        _min,_max = ax.get_ylim()
-        if n[1] is not None:
-            a = 10**(-n[1])
-            _min = np.ceil(_min/a)*a
-            _max = np.floor(_max/a)*a
-            ax.set_ylim(_min,_max)
-        ax.set_yticks([_min,_max])
-        ax.yaxis.labelpad = pad[1]
-
-        #assumes a vertical colorbar
-        if cbar is None:
-            if im:
-                cbar = im.colorbar
-            else:
-                ims = [obj for obj in ax.get_children() if isinstance(obj, mpl.image.AxesImage) or isinstance(obj,mpl.collections.QuadMesh)]
-                if ims:
-                    im = ims[0]
-                    cbar = im.colorbar
-                else:
-                    im,cbar = None, None
-        if cbar is not None and im is not None:
-            _min,_max = cbar.ax.get_ylim()
-            label = cbar.ax.get_ylabel()
-            if n[2] is not None:
-                a = 10**(-n[2])
+        
+        if apply[0]:
+            _min,_max = ax.get_xlim()
+            if n[0] is not None:
+                a = 10**(-n[0])
                 _min = np.ceil(_min/a)*a
                 _max = np.floor(_max/a)*a
-                im.set_clim(_min,_max)
-            cbar.set_ticks([_min,_max])
-            cbar.ax.yaxis.labelpad = pad[2]
-            cbar.ax.set_ylabel(label)  
-    
+            ax.set_xticks([_min,_max])
+            ax.xaxis.labelpad = pad[0]
+
+        if apply[1]:
+            _min,_max = ax.get_ylim()
+            if n[1] is not None:
+                a = 10**(-n[1])
+                _min = np.ceil(_min/a)*a
+                _max = np.floor(_max/a)*a
+            ax.set_yticks([_min,_max])
+            ax.yaxis.labelpad = pad[1]
+            
+        if apply[2]:
+            #assumes a vertical colorbar
+            if cbar is None:
+                if im:
+                    cbar = im.colorbar
+                else:
+                    ims = [obj for obj in ax.get_children() if isinstance(obj, mpl.image.AxesImage) or isinstance(obj,mpl.collections.QuadMesh)]
+                    if ims:
+                        im = ims[0]
+                        cbar = im.colorbar
+                    else:
+                        im,cbar = None, None
+            if cbar is not None and im is not None:
+                _min,_max = cbar.ax.get_ylim()
+                label = cbar.ax.get_ylabel()
+                if n[2] is not None:
+                    a = 10**(-n[2])
+                    _min = np.ceil(_min/a)*a
+                    _max = np.floor(_max/a)*a
+                    #im.set_clim(_min,_max)
+                cbar.set_ticks([_min,_max])
+                cbar.ax.yaxis.labelpad = pad[2]
+                cbar.ax.set_ylabel(label)  
+            
+    @staticmethod
+    def formatLabel(fname,s):
+        '''
+        see qtplot/export.py
+        '''
+        conversions = {
+            '<filename>': os.path.split(fname)[-1],
+            '<operations>': '',
+        }
+        for old, new in conversions.items():
+            s = s.replace(old, new)
+        for key, value in Data2d.readSettings(fname).items():
+            if isinstance(value, dict):
+                for key_, value_ in value.items():
+                    s = s.replace('<%s:%s>'%(key,key_), '%s'%value_)
+        return s
+
 def plot(fPath,**kw):
     '''Generate a 2d or 1d plot with customize parameters'''
     x,y,w,labels = read2d(fPath,**kw)
@@ -399,11 +581,17 @@ class Player:
         if 'labels' not in kw:
             kw['labels'] = labels
         
-        if len(y)==1:#1d data
-            x = np.vstack([x,x,x])
-            y = np.vstack([y-.5,y,y+.5])
-            w = np.vstack([w,w,w])
-
+        #1d data
+        if len(x)==1:
+            if x[0,0]!=x[0,-1]:
+                x = np.vstack([x,x])
+                y = np.vstack([y,y+1])
+            else:
+                x = np.vstack([x,x+1])
+                y = np.vstack([y,y])
+            w = np.vstack([w,w])
+            x,y,w = Operation.autoflip(np.stack([x,y,w],axis=0))
+ 
         self.x = x
         self.y = y
         self.w = w
@@ -450,9 +638,9 @@ class Player:
         vb3 = widgets.VBox([self.b_expMTX,self.html_exp])
         self.t_tools = widgets.Tab(children=[vb1,vb2,vb3])
         [self.t_tools.set_title(i,j) for i,j in zip(range(3), ['linecuts','color','export'])]
-        self.t_tools.layout.display = 'none'
+        self.t_tools.layout.display = 'block'
         ## A toggle button
-        self.tb_showtools = widgets.ToggleButton(value=False, description='...', tooltip='Toggle Tools', icon='plus-circle')
+        self.tb_showtools = widgets.ToggleButton(value=True, description='', tooltip='Toggle Tools', icon='minus-circle')
         self.tb_showtools.layout.width='50px'
         ## Top layer ui
         ui = widgets.Box([self.t_tools,self.tb_showtools])
