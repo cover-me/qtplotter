@@ -195,7 +195,20 @@ class Data2d:
             return lambda url,mode: zipfile.ZipFile(url.split('.zip/')[0]+'.zip').open(url.split('.zip/')[1])
         else:
             return open
-    
+
+    @staticmethod
+    def readNPZ(fPath):
+        '''
+        Read NPZ
+        '''
+        d = np.load(fPath)
+        labels = d.files
+        assert len(labels) == 3
+        x,y,z = d[labels[0]],d[labels[1]],d[labels[2]]
+        if len(np.shape(x))==1:
+            y,x = np.meshgrid(y,x,indexing='ij')
+        return x,y,z,labels
+                    
     @staticmethod
     def readMTX(fPath):
         '''
@@ -302,22 +315,13 @@ class Data2d:
             print('MTX data saved: %s'%fpath)
 
     @staticmethod
-    def saveNPY2d(fpath,x,y,z,labels,xyUniform):
+    def saveNPZ2d(fpath,x,y,z,labels,xyUniform):
         if xyUniform:
-            #make sure this is real min! Guaranteed by Operation.autoflip() when importing the data.
-            xmin,xmax,ymin,ymax = x[0,0],x[0,-1],y[0,0],y[-1,0]
-            np.save(fpath[:-3]+'z.npy',z)
-            with open(fpath[:-3]+'meta.json', 'w') as f:
-                metadata = {'labels':labels,'xmin':xmin,'xmax':xmax,'ymin':ymin,'ymax':ymax}
-                json.dump(metadata, f)
-        else:
-            np.save(fpath[:-3]+'x.npy',x)
-            np.save(fpath[:-3]+'y.npy',y)
-            np.save(fpath[:-3]+'z.npy',z)
-            with open(fpath[:-3]+'meta.json', 'w') as f:
-                metadata = {'labels':labels}
-                json.dump(metadata, f)
-        print('NPY data saved: %s'%fpath)
+            x = x[0]
+            y = y[:,0]
+        lx,ly,lz = labels
+        np.savez(fpath,**{lx:x, ly:y, lz:z})
+        print('NPZ data saved: %s'%fpath)
 
     @staticmethod
     def readSettings(fpath):
@@ -364,6 +368,8 @@ def read2d(fPath,**kw):
     '''
     if fPath.endswith('.mtx'):
         x,y,w,labels = Data2d.readMTX(fPath)
+    elif fPath.endswith('.npz'):
+        x,y,w,labels = Data2d.readNPZ(fPath)
     elif fPath.endswith('.dat'):
         x,y,w,labels = Data2d.readDat(fPath,**kw)
     else:
@@ -374,7 +380,7 @@ def save2d(fPath,x,y,w,labels,xyUniform):
     if fPath.endswith('.mtx'):
         Data2d.saveMTX2d(fPath,x,y,w,labels,xyUniform)
     elif fPath.endswith('.npz'):
-        Data2d.saveNPY2d(fPath,x,y,w,labels,xyUniform)
+        Data2d.saveNPZ2d(fPath,x,y,w,labels,xyUniform)
     else:
         raise('Format not recognized.')
 
