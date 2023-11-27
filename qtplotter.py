@@ -2,7 +2,7 @@
 It's a simpler, easier-to-access, notebook-based version of Rubenknex/qtplot. Most of the code is grabbed from qtplot.
 The project is hosted on https://github.com/cover-me/qtplotter
 '''
-import os, sys, zipfile,scipy.ndimage
+import os, sys, zipfile, time, scipy.ndimage, scipy.integrate
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
@@ -15,6 +15,7 @@ print('python:',sys.version)
 print('matplotlib:', mpl.__version__)
 print('numpy:', np.__version__)
 print('scipy:', scipy.__version__)
+print('qtplotter:', '2022-07-10')
 
 # data operations
 class Operation:
@@ -67,7 +68,7 @@ class Operation:
     @staticmethod
     def yderiv(d):
         '''
-        y derivation, slightly different from qtplot
+        y derivative, slightly different from qtplot
         https://en.wikipedia.org/wiki/Finite_difference_coefficient
         https://docs.scipy.org/doc/numpy/reference/generated/numpy.gradient.html
         '''
@@ -78,6 +79,32 @@ class Operation:
         z[1:-1] = (z[2:] - z[:-2])/(y[2:] - y[:-2])
         z[0] = dzdy0
         z[-1] = dzdy1
+        return d
+
+    @staticmethod
+    def xderiv(d):
+        '''
+        x derivative, slightly different from qtplot
+        https://en.wikipedia.org/wiki/Finite_difference_coefficient
+        https://docs.scipy.org/doc/numpy/reference/generated/numpy.gradient.html
+        '''
+        x = d[0]
+        z = d[2]
+        dzdx0 = (z[:,1]-z[:,0])/(x[:,1]-x[:,0])
+        dzdx1 = (z[:,-2]-z[:,-1])/(x[:,-2]-x[:,-1])
+        z[:,1:-1] = (z[:,2:] - z[:,:-2])/(x[:,2:] - x[:,:-2])
+        z[:,0] = dzdx0
+        z[:,-1] = dzdx1
+        return d
+    
+    @staticmethod
+    def yintegrate(d):
+        '''
+        y integration
+        '''
+        y = d[1]
+        dy = abs(y[1,0]-y[0,0])
+        d[2] = scipy.integrate.cumulative_trapezoid(d[2],axis=0,dx=dy,initial=0)
         return d
     
     @staticmethod
@@ -156,7 +183,7 @@ class Operation:
         return d
 
     @staticmethod
-    def linecut(d,x=None,y=None):
+    def linecut_old(d,x=None,y=None):
         '''
         Extract data from a linecut, assume data is on grid, uniformly sampled, and autoflipped
         scipy.interpolate.interp2d is too slow, scipy.interpolate.RectBivariateSpline not good
@@ -179,6 +206,47 @@ class Operation:
         indy = (y-y0[0])/(y0[-1]-y0[0])*(len(y0)-1)
         z = scipy.ndimage.map_coordinates(d[2], [indy, indx], order=1)
         return np.vstack((x,y,z))
+    
+    @staticmethod
+    def linecut(d,x=None,y=None):
+        '''
+        Extract data from a linecut, assume data is on grid
+        '''
+        if (x is None and y is None) or (x is None and len(np.shape(y))>0) or (y is None and len(np.shape(x))>0):
+            raise ValueError('Invalid parameters for linecut')
+        x0 = d[0][0]
+        y0 = d[1][:,0]
+        
+        # horizontal linecut
+        if x is None:
+            x1 = x0
+            indy = np.abs(y0 - y).argmin()# x0 may be a non uniform array
+            y1 = np.full(len(x0), y0[indy])
+            z1 = d[2,indy,:]
+                                    
+        # vertical linecut
+        if y is None:
+            y1 = y0
+            indx = np.abs(x0 - x).argmin()# x0 may be a non uniform array
+            x1 = np.full(len(y0), x0[indx])
+            z1 = d[2,:,indx]
+
+        return np.vstack((x1,y1,z1))
+    
+    @staticmethod
+    def hist2d(d, z_min, z_max, bins):
+        """Convert every column into a histogram, default bin amount is sqrt(n)."""
+        X,Y,Z = d[:3]
+        hist = np.apply_along_axis(lambda x: np.histogram(x, bins, (z_min, z_max))[0], 0, Z)
+
+        binedges = np.linspace(z_min, z_max, bins + 1)
+        bincoords = (binedges[:-1] + binedges[1:]) / 2
+
+        X = np.tile(X[0,:], (hist.shape[0], 1))
+        Y = np.tile(bincoords[:,np.newaxis], (1, hist.shape[1]))
+        Z = hist
+
+        return np.stack([X,Y,Z])
         
         
 # data loading/saving
@@ -195,7 +263,20 @@ class Data2d:
             return lambda url,mode: zipfile.ZipFile(url.split('.zip/')[0]+'.zip').open(url.split('.zip/')[1])
         else:
             return open
-    
+
+    @staticmethod
+    def readNPZ(fPath):
+        '''
+        Read NPZ
+        '''
+        d = np.load(fPath)
+        labels = d.files
+        assert len(labels) == 3
+        x,y,z = d[labels[0]],d[labels[1]],d[labels[2]]
+        if len(np.shape(x))==1:
+            y,x = np.meshgrid(y,x,indexing='ij')
+        return x,y,z,labels
+                    
     @staticmethod
     def readMTX(fPath):
         '''
@@ -289,8 +370,10 @@ class Data2d:
     
     @staticmethod
     def saveMTX2d(fpath,x,y,z,labels,xyUniform):
+        labels = [_replace_greek_symbols(i) for i in labels]
         if not xyUniform:
-            raise('Use MTX format only when x and y are uniformly sampled!')
+            raise Exception('Use MTX format only when x and y are uniformly sampled!')
+        _create_folder_if_not_exist(fpath)
         with open(fpath, 'wb') as f:
             labels = [i.replace(',','_') for i in labels]#',' is forbidden
             #make sure this is real min! Guaranteed by Operation.autoflip() when importing the data.
@@ -302,22 +385,48 @@ class Data2d:
             print('MTX data saved: %s'%fpath)
 
     @staticmethod
-    def saveNPY2d(fpath,x,y,z,labels,xyUniform):
+    def saveNPZ2d(fpath,x,y,z,labels,xyUniform):
+        labels = [_replace_greek_symbols(i) for i in labels]
         if xyUniform:
-            #make sure this is real min! Guaranteed by Operation.autoflip() when importing the data.
-            xmin,xmax,ymin,ymax = x[0,0],x[0,-1],y[0,0],y[-1,0]
-            np.save(fpath[:-3]+'z.npy',z)
-            with open(fpath[:-3]+'meta.json', 'w') as f:
-                metadata = {'labels':labels,'xmin':xmin,'xmax':xmax,'ymin':ymin,'ymax':ymax}
-                json.dump(metadata, f)
+            x = x[0]
+            y = y[:,0]
+        lx,ly,lz = labels
+        _create_folder_if_not_exist(fpath)
+        np.savez(fpath,**{lx:x, ly:y, lz:z})
+        print('NPZ data saved: %s'%fpath)
+    
+    @staticmethod
+    def saveDAT2d(fpath,x,y,z,labels):
+        labels = [_replace_greek_symbols(i) for i in labels]
+        if x.ndim == 1:
+            xsize = x.shape[0]
+            ysize = 1
         else:
-            np.save(fpath[:-3]+'x.npy',x)
-            np.save(fpath[:-3]+'y.npy',y)
-            np.save(fpath[:-3]+'z.npy',z)
-            with open(fpath[:-3]+'meta.json', 'w') as f:
-                metadata = {'labels':labels}
-                json.dump(metadata, f)
-        print('NPY data saved: %s'%fpath)
+            xsize = x.shape[1]
+            ysize = x.shape[0]
+        fname = os.path.split(fpath)[1]
+        
+        meta = ''
+        meta += '# Filename: %s\n' % fname
+        meta += '# Timestamp: %s\n\n' % time.asctime(time.localtime())
+
+        meta += '# Column %d\n' % 1
+        meta += '#\tname: %s\n' % labels[0]
+        meta += '#\tsize: %d\n' % xsize
+
+        meta += '# Column %d\n' % 2
+        meta += '#\tname: %s\n' % labels[1]
+        meta += '#\tsize: %d\n' % ysize
+        
+        meta += '# Column %d\n' % 3
+        meta += '#\tname: %s\n' % labels[2]
+        meta += '\n'
+                
+        data = np.stack([x,y,z])
+
+        _create_folder_if_not_exist(fpath)
+        np.savetxt(fpath,data.reshape((3,-1)).T,fmt='%.12e',delimiter='\t',header=meta,comments='')
+        print('DAT data saved: %s'%fpath)
 
     @staticmethod
     def readSettings(fpath):
@@ -364,19 +473,65 @@ def read2d(fPath,**kw):
     '''
     if fPath.endswith('.mtx'):
         x,y,w,labels = Data2d.readMTX(fPath)
+    elif fPath.endswith('.npz'):
+        x,y,w,labels = Data2d.readNPZ(fPath)
     elif fPath.endswith('.dat'):
         x,y,w,labels = Data2d.readDat(fPath,**kw)
     else:
         return
     return x,y,w,labels
 
+def _replace_greek_symbols(meta_string):
+    '''
+    Replace greek symbols from the meta_string so that qtplot can read the labels.
+    '''
+    s = r'''α \alpha
+β \beta
+γ Γ \gamma \Gamma
+δ Δ \delta \Delta
+ϵ \epsilon
+ζ \zeta
+η \eta
+θ Θ \theta \Theta
+ι \iota
+κ \kappa
+λ Λ \lambda \Lambda
+μ \mu
+ν \nu
+ο \omicron
+π Π \pi \Pi
+ρ \rho
+σ Σ \sigma \Sigma
+τ \tau
+υ Υ \upsilon \Upsilon
+ϕ Φ \phi \Phi
+χ \chi
+ψ Ψ \psi \Psi
+ω Ω \omega \Omega'''
+    
+    for i in s.split('\n'):
+        convert_list = i.split(' ')
+        n = len(convert_list)//2
+        for j in range(n):
+            meta_string = meta_string.replace(convert_list[j],f'${convert_list[n+j]}$')
+    return meta_string
+        
+    
+
+def _create_folder_if_not_exist(fpath):
+    folder = os.path.split(fpath)[0]
+    if folder and (not os.path.exists(folder)):
+        os.mkdir(folder)
+
 def save2d(fPath,x,y,w,labels,xyUniform):
     if fPath.endswith('.mtx'):
         Data2d.saveMTX2d(fPath,x,y,w,labels,xyUniform)
     elif fPath.endswith('.npz'):
-        Data2d.saveNPY2d(fPath,x,y,w,labels,xyUniform)
+        Data2d.saveNPZ2d(fPath,x,y,w,labels,xyUniform)
+    elif fPath.endswith('.dat'):
+        Data2d.saveDAT2d(fPath,x,y,w,labels)
     else:
-        raise('Format not recognized.')
+        raise Exception('Format not recognized.')
 
 class Data1d:
     '''
@@ -387,12 +542,38 @@ class Data1d:
     def saveNPZ1d(fPath,x,y,labels):
         np.savez(fPath,**{labels[0]:x,labels[1]:y})
         print('NPZ data saved: %s'%fPath)
+        
+    @staticmethod
+    def saveDAT1d(fpath,x,y,labels):
+        labels = [_replace_greek_symbols(i) for i in labels]
+        fname = os.path.split(fpath)[1]
+        xsize = len(x)
+        
+        meta = ''
+        meta += '# Filename: %s\n' % fname
+        meta += '# Timestamp: %s\n\n' % time.asctime(time.localtime())
+
+        meta += '# Column %d\n' % 1
+        meta += '#\tname: %s\n' % labels[0]
+        meta += '#\tsize: %d\n' % xsize
+
+        meta += '# Column %d\n' % 2
+        meta += '#\tname: %s\n' % labels[1]
+        meta += '\n'
+                
+        data = np.stack([x,y])
+
+        _create_folder_if_not_exist(fpath)
+        np.savetxt(fpath,data.T,fmt='%.12e',delimiter='\t',header=meta,comments='')
+        print('DAT data saved: %s'%fpath)
 
 def save1d(fPath,x,y,labels):
     if fPath.endswith('.npz'):
         Data1d.saveNPZ1d(fPath,x,y,labels)
+    elif fPath.endswith('.dat'):
+        Data1d.saveDAT1d(fPath,x,y,labels)
     else:
-        raise('Format not recognized.')
+        raise Exception('Format not recognized.')
 
 # plot
 class Painter:
@@ -415,7 +596,7 @@ class Painter:
         https://cover-me.github.io/2019/02/17/Save-2d-data-as-a-figure.html
         https://cover-me.github.io/2019/04/04/Save-2d-data-as-a-figure-II.html
         '''
-        #plot setting
+        # plot setting
         ps = Painter.get_default_ps()
         for i in ps:
             if i in kw:
@@ -431,10 +612,8 @@ class Painter:
             ax = kw['ax']
         else:
             # Publication quality first. Which means you don't want large figures with small fonts as those default figures.
-            # dpi is set to 120 so the figure is enlarged for the mornitor.
             figsize = kw['figsize'] if 'figsize' in kw else (3.375,2)
-            dpi = kw['dpi'] if 'dpi' in kw else 120
-            fig, ax = plt.subplots(figsize=figsize,dpi=dpi)
+            fig, ax = plt.subplots(figsize=figsize)
             
         x1 = Operation._get_quad(x)# explained here: https://cover-me.github.io/2019/02/17/Save-2d-data-as-a-figure.html
         y1 = Operation._get_quad(y)
@@ -451,16 +630,18 @@ class Painter:
             #data need to be autoflipped when imported
             xy_range = (x1[0,0],x1[0,-1],y1[0,0],y1[-1,0])
             im = ax.imshow(w,aspect='auto',interpolation='nearest',origin='lower',extent=xy_range,**imkw)
-            #clip the image a little to set xy limits to the real numbers
-            dx = x1[0,1]-x1[0,0]
-            dy = y1[1,0]-y1[0,0]
-            ax.set_xlim(xy_range[0]+dx/2.,xy_range[1]-dx/2.)
-            ax.set_ylim(xy_range[2]+dy/2.,xy_range[3]-dy/2.)
+            #If there is only one dataset, clip the image a little to set xy limits to true numbers
+            if ax.get_xlim() + ax.get_ylim() == xy_range:               
+                ax.set_xlim(x[0,0],x[0,-1])
+                ax.set_ylim(y[0,0],y[-1,0])
         else:
             im = ax.pcolormesh(x1,y1,w,rasterized=True,**imkw)
 
         if ps['plotCbar']:
-            cbar = fig.colorbar(im,ax=ax)
+            if type(ps['plotCbar']) == dict:
+                cbar = fig.colorbar(im,ax=ax,**ps['plotCbar'])
+            else:
+                cbar = fig.colorbar(im,ax=ax)
             cbar.set_label(ps['labels'][2])
         else:
             cbar = None
@@ -478,7 +659,7 @@ class Painter:
             fig = kw['fig']
             ax = kw['ax']
         else:
-            fig, ax = plt.subplots(figsize=(3.375,2),dpi=120)
+            fig, ax = plt.subplots(figsize=(3.375,2))
         ax.plot(x[0],w[0])
         ax.set_xlabel(ps['labels'][0])
         ax.set_ylabel(ps['labels'][1])
@@ -661,7 +842,7 @@ class Player:
         
     def draw(self,event):
         # axs
-        fig, axs = plt.subplots(1,2,figsize=(6.5,2.5),dpi=100)#main plot and h linecut
+        fig, axs = plt.subplots(1,2,figsize=(6.5,2.5))#main plot and h linecut
         fig.canvas.header_visible = False
         fig.canvas.toolbar_visible = False
         fig.canvas.resizable = False
@@ -779,13 +960,13 @@ class Player:
         labels = self.kw['labels']
         # vlincut
         fnamev = fname+'.vcut.%e.mtx'%x[0,self.indx]
-        Data2d.saveMTX2d(fnamev,y0[np.newaxis],x[np.newaxis,:,self.indx],w[np.newaxis,:,self.indx],[labels[i] for i in [1,0,2]])
+        Data2d.saveMTX2d(fnamev,y0[np.newaxis],x[np.newaxis,:,self.indx],w[np.newaxis,:,self.indx],[labels[i] for i in [1,0,2]],True)
         # hlincut
         fnameh = fname+'.hcut.%e.mtx'%y[self.indy,0]
-        Data2d.saveMTX2d(fnameh,x0[np.newaxis],y[[self.indy],:],w[[self.indy],:],labels)
+        Data2d.saveMTX2d(fnameh,x0[np.newaxis],y[[self.indy],:],w[[self.indy],:],labels,True)
         # 2d data
         fname2d = fname+'.mtx'
-        Data2d.saveMTX2d(fname2d,x,y,w,labels)
+        Data2d.saveMTX2d(fname2d,x,y,w,labels,True)
         self.html_exp.value = 'Files saved:<br>%s<br>%s<br>%s'%(fnamev,fnameh,fname2d)
     
     @staticmethod    
@@ -825,7 +1006,7 @@ class Player:
         def _play2d(xpos,ypos,gamma,vlim):
             nonlocal indx,indy
             # initialize the figure
-            fig, axs = plt.subplots(1,2,figsize=(6.5,2.5),dpi=120)#main plot and h linecut
+            fig, axs = plt.subplots(1,2,figsize=(6.5,2.5))#main plot and h linecut
             plt.subplots_adjust(wspace=0.4)
             axs[1].yaxis.tick_right()
             axs[1].tick_params(axis='x', colors='tab:orange')
@@ -853,14 +1034,14 @@ class Player:
             fname = os.path.splitext(fname)[0]
             # vlincut
             fnamev = fname+'.vcut.%e.mtx'%x[0,indx]
-            Data2d.saveMTX2d(fnamev,y0[np.newaxis],x[np.newaxis,:,indx],w[np.newaxis,:,indx],[labels[i] for i in [1,0,2]])
+            Data2d.saveMTX2d(fnamev,y0[np.newaxis],x[np.newaxis,:,indx],w[np.newaxis,:,indx],[labels[i] for i in [1,0,2]],True)
             # hlincut
             fnameh = fname+'.hcut.%e.mtx'%y[indy,0]
-            Data2d.saveMTX2d(fnameh,x0[np.newaxis],y[[indy],:],w[[indy],:],labels)
+            Data2d.saveMTX2d(fnameh,x0[np.newaxis],y[[indy],:],w[[indy],:],labels,True)
             # 2d data
             fname2d = fname+'.mtx'
             Data2d.saveMTX2d(fname2d,x,y,w,labels)
-            htmlexp.value = 'Files saved:<br>%s<br>%s<br>%s'%(fnamev,fnameh,fname2d)
+            htmlexp.value = 'Files saved:<br>%s<br>%s<br>%s'%(fnamev,fnameh,fname2d,True)
 
         out = widgets.interactive_output(_play2d, {'xpos':sxpos,'ypos':sypos,'gamma':sgamma,'vlim':svlim})
         bexpMTX.on_click(_export)
