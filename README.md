@@ -1,5 +1,7 @@
 # qtplotter
 
+Note: The initial goal of this project was to generate both interactive and static figures with the same Jupyter Notebook code. However, the focus gradually shifts to generating static figures since the demand from publication is higher than sharing the data with a convenient visualization tool. For interactive figures, I started a new project [qtview](https://github.com/cover-me/qtview). Old source codes are still available on the release page of this project. 
+
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/cover-me/qtplotter/master?filepath=index.ipynb)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cover-me/qtplotter/blob/master/index.ipynb)
 
